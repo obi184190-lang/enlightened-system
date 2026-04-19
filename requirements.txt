@@ -1,0 +1,20 @@
+# Taiwan Stock Market Monitoring System
+# 台灣股市監控系統依賴
+
+# HTTP 請求庫
+requests>=2.31.0
+
+# Supabase 客戶端（數據庫）
+supabase>=2.3.0
+
+# Telegram Bot API
+python-telegram-bot>=20.3
+
+# 日期時間處理
+python-dateutil>=2.8.2
+
+# 數據處理（可選，用於未來的數據分析）
+pandas>=2.0.0
+
+# 環境變量管理
+python-dotenv>=1.0.0
