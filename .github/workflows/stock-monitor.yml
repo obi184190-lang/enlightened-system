@@ -3,8 +3,8 @@ name: Stock Monitor & Trading Bot
 on:
   schedule:
     # 每天上午 9:15 和下午 2:00 台灣時間運行
-    -  cron: '15 1 * * 1-5' # 09:15 (UTC+8)
-    -  cron: '00 6 * * 1-5' # 14:00 (UTC+8)
+    - cron: '15 1 * * 1-5' # 09:15 (UTC+8)
+    - cron: '00 6 * * 1-5' # 14:00 (UTC+8)
   
   # 允許手動觸發
   workflow_dispatch:
