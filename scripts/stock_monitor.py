@@ -53,30 +53,24 @@ class TaiwanStockMonitor:
         使用 TwStock API (免費，無需認證)
         """
         try:
-            # 使用台灣股市公開 API
-            url = f'https://tw-stock-api.herokuapp.com/api/tse/{stock_code}'
+            import yfinance as yf
+            ticker = yf.Ticker(f"{stock_code}.TW")
+            hist = ticker.history(period="2d")
             
-            response = requests.get(url, headers=self.headers, timeout=10)
-            response.raise_for_status()
+            if hist.empty:
+                logger.error(f"抓取 {stock_code} 數據失敗: 無數據")
+                return None
             
-            data = response.json()
-            
-            if 'data' in data and data['data']:
-                stock_info = {
-                    'code': stock_code,
-                    'name': STOCK_NAMES.get(stock_code, stock_code),
-                    'price': float(data['data'][-1]['close']), # 最新收盤價
-                    'timestamp': datetime.now().isoformat(),
-                    'high': float(data['data'][-1]['high']),
-                    'low': float(data['data'][-1]['low']),
-                    'volume': int(data['data'][-1]['volume'])
-                }
-                return stock_info
-            
-            logger.warning(f"Stock {stock_code} 無可用數據")
-            return None
-            
-        except requests.exceptions.RequestException as e:
+            latest = hist.iloc[-1]
+            stock_info = {
+                'code': stock_code,
+                'price': float(latest['Close']),
+                'volume': int(latest['Volume']),
+                'change': float(latest['Close'] - latest['Open']),
+                'change_percent': float((latest['Close'] - latest['Open']) / latest['Open'] * 100)
+            }
+            return stock_info
+        except Exception as e:
             logger.error(f"抓取 {stock_code} 數據失敗: {str(e)}")
             return None
     
