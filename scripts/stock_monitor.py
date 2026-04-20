@@ -55,10 +55,10 @@ class TaiwanStockMonitor:
         try:
             import yfinance as yf
             ticker = yf.Ticker(f"{stock_code}.TW")
-            hist = ticker.history(period="2d")
-            
+            hist = ticker.history(period="5d")
+            hist = hist.dropna()  # 移除 NaN 行
             if hist.empty:
-                logger.error(f"抓取 {stock_code} 數據失敗: 無數據")
+                logger.error(f"{stock_code} 無有效數據（休市或數據缺失）")
                 return None
             
             latest = hist.iloc[-1]
