@@ -4,7 +4,7 @@
 # HTTP 請求庫
 requests>=2.31.0
 
-# Supabase-py（數據庫）
+# Supabase（數據庫）
 supabase>=2.3.0
 
 # Telegram Bot API
