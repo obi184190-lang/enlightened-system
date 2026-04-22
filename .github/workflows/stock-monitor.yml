@@ -11,8 +11,7 @@ on:
         required: false
         default: ''
   
-  # 允許手動觸發
-  workflow_dispatch:
+  
 
 jobs:
   stock-monitor:
