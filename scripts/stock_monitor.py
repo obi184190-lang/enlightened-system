@@ -346,32 +346,32 @@ class TaiwanStockMonitor:
         message = "📊 <b>股票監控摘要</b>\n"
         message += f"時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
         
-        for signal in signals:
+    for signal in signals:
             if signal['signal_type'] == 'BUY':
-    if signal['confidence'] >= 0.70:
-        emoji = "🔴"
-        level = "強烈買入"
-    elif signal['confidence'] >= 0.50:
-        emoji = "🟡"
-        level = "建議買入"
-    else:
-        emoji = "⚪"
-        level = "觀望"
-    elif signal['signal_type'] == 'SELL':
-        emoji = "🔵"
-        level = "賣出"
-    else:
-        emoji = "⚫"
-        level = "持有"
+                if signal['confidence'] >= 0.70:
+                    emoji = "🔴"
+                    level = "強烈買入"
+                elif signal['confidence'] >= 0.50:
+                    emoji = "🟡"
+                    level = "建議買入"
+                else:
+                    emoji = "⚪"
+                    level = "觀望"
+            elif signal['signal_type'] == 'SELL':
+                emoji = "🔵"
+                level = "賣出"
+            else:
+                emoji = "⚫"
+                level = "持有"
             message += f"{emoji} <b>{signal['code']} {STOCK_NAMES.get(signal['code'], '')} [{level}]</b>\n"
             message += f" 信號: {signal['signal_type']}\n"
             message += f" 價格: {signal['price']:.2f}\n"
-            message += f" 信心度: {signal['confidence']:.2%}\n\n"
+            message += f" 信心度: {signal['confidence']:.2%}\n"
             if signal['signal_type'] == 'BUY':
                 stop_loss = round(signal['price'] * 0.95, 2)
                 take_profit = round(signal['price'] * 1.15, 2)
                 message += f" 🎯 目標價: {take_profit} (+15%)\n"
-                message += f" 🛑 止損價: {stop_loss} (-5%)\n\n"
+                message += f" 🛑 止損價: {stop_loss} (-5%)\n\n"    
      return message
 
 def main():
