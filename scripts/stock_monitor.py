@@ -27,9 +27,33 @@ SUPABASE_URL = os.getenv('SUPABASE_URL')
 SUPABASE_ANON_KEY = os.getenv('SUPABASE_ANON_KEY')
 SUPABASE_SERVICE_ROLE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
 
-# 監控的股票代碼（台灣股市）
-STOCK_CODES = ['2303', '2637', '4938']
-STOCK_NAMES = {
+# 讀取股票清單（支援A+B兩種方式）
+stocks_override = os.getenv('STOCKS_OVERRIDE', '').strip()
+
+if stocks_override:
+    # 方式B：執行時臨時輸入
+    stock_list = [s.strip() for s in stocks_override.split(',')]
+    STOCK_CODES = [s for s in stock_list if s]
+    STOCK_NAMES = {code: code for code in STOCK_CODES}
+    logger.info(f"使用臨時股票清單：{STOCK_CODES}")
+else:
+    # 方式A：讀取 stocks.txt
+    try:
+        with open('stocks.txt', 'r', encoding='utf-8') as f:
+            lines = [l.strip() for l in f.readlines() if l.strip()]
+        STOCK_CODES = [l.split(',')[0].strip() for l in lines]
+        STOCK_NAMES = {}
+        for l in lines:
+            parts = l.split(',')
+            code = parts[0].strip()
+            name = parts[1].strip() if len(parts) > 1 else code
+            STOCK_NAMES[code] = name
+        logger.info(f"從stocks.txt讀取：{STOCK_CODES}")
+    except:
+        # 備用清單
+        STOCK_CODES = ['2303', '2637', '4938']
+        STOCK_NAMES = {'2303': '聯電', '2637': '慧洋-KY', '4938': '和碩'}
+        logger.warning("stocks.txt讀取失敗，使用備用清單")
     '2303': '聯電',
     '2637': '慧洋-KY',
     '4938': '和碩'
