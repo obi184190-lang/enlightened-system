@@ -357,12 +357,12 @@ class TaiwanStockMonitor:
     else:
         emoji = "⚪"
         level = "觀望"
-elif signal['signal_type'] == 'SELL':
-    emoji = "🔵"
-    level = "賣出"
-else:
-    emoji = "⚫"
-    level = "持有"
+    elif signal['signal_type'] == 'SELL':
+        emoji = "🔵"
+        level = "賣出"
+    else:
+        emoji = "⚫"
+        level = "持有"
             message += f"{emoji} <b>{signal['code']} {STOCK_NAMES.get(signal['code'], '')} [{level}]</b>\n"
             message += f" 信號: {signal['signal_type']}\n"
             message += f" 價格: {signal['price']:.2f}\n"
@@ -372,7 +372,7 @@ else:
                 take_profit = round(signal['price'] * 1.15, 2)
                 message += f" 🎯 目標價: {take_profit} (+15%)\n"
                 message += f" 🛑 止損價: {stop_loss} (-5%)\n\n"
-        return message
+     return message
 
 def main():
     """主函數"""
