@@ -352,7 +352,11 @@ class TaiwanStockMonitor:
             message += f" 信號: {signal['signal_type']}\n"
             message += f" 價格: {signal['price']:.2f}\n"
             message += f" 信心度: {signal['confidence']:.2%}\n\n"
-        
+            if signal['signal_type'] == 'BUY':
+                stop_loss = round(signal['price'] * 0.95, 2)
+                take_profit = round(signal['price'] * 1.15, 2)
+                message += f" 🎯 目標價: {take_profit} (+15%)\n"
+                message += f" 🛑 止損價: {stop_loss} (-5%)\n\n"
         return message
 
 def main():
