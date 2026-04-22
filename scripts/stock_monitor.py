@@ -54,10 +54,7 @@ else:
         STOCK_CODES = ['2303', '2637', '4938']
         STOCK_NAMES = {'2303': '聯電', '2637': '慧洋-KY', '4938': '和碩'}
         logger.warning("stocks.txt讀取失敗，使用備用清單")
-    '2303': '聯電',
-    '2637': '慧洋-KY',
-    '4938': '和碩'
-}
+    
 
 class TaiwanStockMonitor:
     """台灣股市監控器"""
