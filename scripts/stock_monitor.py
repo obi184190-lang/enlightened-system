@@ -347,8 +347,23 @@ class TaiwanStockMonitor:
         message += f"時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
         
         for signal in signals:
-            emoji = "🟢" if signal['signal_type'] == 'BUY' else "🔴" if signal['signal_type'] == 'SELL' else "⚪"
-            message += f"{emoji} <b>{signal['code']}</b>\n"
+            if signal['signal_type'] == 'BUY':
+    if signal['confidence'] >= 0.70:
+        emoji = "🔴"
+        level = "強烈買入"
+    elif signal['confidence'] >= 0.50:
+        emoji = "🟡"
+        level = "建議買入"
+    else:
+        emoji = "⚪"
+        level = "觀望"
+elif signal['signal_type'] == 'SELL':
+    emoji = "🔵"
+    level = "賣出"
+else:
+    emoji = "⚫"
+    level = "持有"
+            message += f"{emoji} <b>{signal['code']} {STOCK_NAMES.get(signal['code'], '')} [{level}]</b>\n"
             message += f" 信號: {signal['signal_type']}\n"
             message += f" 價格: {signal['price']:.2f}\n"
             message += f" 信心度: {signal['confidence']:.2%}\n\n"
