@@ -345,8 +345,7 @@ class TaiwanStockMonitor:
         """生成摘要消息"""
         message = "📊 <b>股票監控摘要</b>\n"
         message += f"時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-        
-    for signal in signals:
+        for signal in signals:
             if signal['signal_type'] == 'BUY':
                 if signal['confidence'] >= 0.70:
                     emoji = "🔴"
@@ -371,9 +370,10 @@ class TaiwanStockMonitor:
                 stop_loss = round(signal['price'] * 0.95, 2)
                 take_profit = round(signal['price'] * 1.15, 2)
                 message += f" 🎯 目標價: {take_profit} (+15%)\n"
-                message += f" 🛑 止損價: {stop_loss} (-5%)\n\n"    
-     return message
-
+                message += f" 🛑 止損價: {stop_loss} (-5%)\n"
+            message += "\n"
+        return message   
+    
 def main():
     """主函數"""
     # 驗證環境變量
