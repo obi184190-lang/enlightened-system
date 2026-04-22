@@ -13,6 +13,7 @@ import requests
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 import time
+import pandas as pd
 
 # 設置日誌
 logging.basicConfig(
@@ -116,24 +117,94 @@ class TaiwanStockMonitor:
             'decision_logic': '無明確信號'
         }
         
-        # 判斷買入信號
-        if ma_20 and ma_50 and price > ma_20 > ma_50:
-            if rsi and rsi < 70:
+       # ==========================================
+        # Phase 4 升級版：多指標加權信心度系統
+        # ==========================================
+        score = 0
+        max_score = 0
+        logic_parts = []
+
+        # 指標1：MA20突破 (權重20%)
+        max_score += 20
+        if ma_20 and price > ma_20:
+            score += 20
+            logic_parts.append("價格>MA20✓")
+
+        # 指標2：MA50趨勢 (權重20%)
+        max_score += 20
+        if ma_50 and ma_20 and ma_20 > ma_50:
+            score += 20
+            logic_parts.append("MA20>MA50✓")
+
+        # 指標3：RSI適中區間 (權重20%)
+        max_score += 20
+        if rsi:
+            if 40 <= rsi <= 65:
+                score += 20
+                logic_parts.append(f"RSI黃金區={rsi:.1f}✓")
+            elif 30 <= rsi < 40 or 65 < rsi <= 70:
+                score += 10
+                logic_parts.append(f"RSI尚可={rsi:.1f}")
+
+        # 指標4：MACD計算 (權重25%)
+        max_score += 25
+        try:
+            closes = data['Close'].values
+            if len(closes) >= 26:
+                ema12 = pd.Series(closes).ewm(span=12).mean().values
+                ema26 = pd.Series(closes).ewm(span=26).mean().values
+                macd_line = ema12 - ema26
+                signal_line = pd.Series(macd_line).ewm(span=9).mean().values
+                if macd_line[-1] > signal_line[-1] and macd_line[-2] <= signal_line[-2]:
+                    score += 25
+                    logic_parts.append("MACD金叉✓")
+                elif macd_line[-1] > signal_line[-1]:
+                    score += 15
+                    logic_parts.append("MACD多頭")
+        except:
+            max_score -= 25
+
+        # 指標5：成交量放大 (權重15%)
+        max_score += 15
+        try:
+            volumes = data['Volume'].values
+            if len(volumes) >= 20:
+                avg_vol = volumes[-20:].mean()
+                if volumes[-1] > avg_vol * 1.5:
+                    score += 15
+                    logic_parts.append("成交量放大✓")
+                elif volumes[-1] > avg_vol * 1.2:
+                    score += 8
+                    logic_parts.append("成交量略增")
+        except:
+            max_score -= 15
+
+        # 計算最終信心度
+        confidence = round(score / max_score, 4) if max_score > 0 else 0
+        logic_str = "，".join(logic_parts) if logic_parts else "條件不足"
+
+        # 判斷信號類型
+        if ma_20 and ma_50 and price > ma_20 > ma_50 and rsi and rsi < 70:
+            if confidence >= 0.70:
                 signal['signal_type'] = 'BUY'
-                signal['confidence'] = min(1.0, (price - ma_50) / (ma_50 * 0.1))
-                signal['decision_logic'] = f'價格突破MA20/MA50，RSI={rsi:.2f}'
-        
-        # 判斷賣出信號
+                signal['confidence'] = confidence
+                signal['decision_logic'] = f"🔴強烈買入 {logic_str}"
+            elif confidence >= 0.50:
+                signal['signal_type'] = 'BUY'
+                signal['confidence'] = confidence
+                signal['decision_logic'] = f"🟡建議買入 {logic_str}"
+            else:
+                signal['signal_type'] = 'BUY'
+                signal['confidence'] = confidence
+                signal['decision_logic'] = f"⚪觀望 {logic_str}"
         elif ma_20 and price < ma_20:
             signal['signal_type'] = 'SELL'
-            signal['confidence'] = 0.7
-            signal['decision_logic'] = f'價格跌破MA20，需要止損'
-        
+            signal['confidence'] = 0.75
+            signal['decision_logic'] = f"價格跌破MA20，需要止損"
         elif rsi and rsi > 80:
             signal['signal_type'] = 'SELL'
-            signal['confidence'] = 0.6
-            signal['decision_logic'] = f'RSI過高={rsi:.2f}，需要獲利了結'
-        
+            signal['confidence'] = 0.70
+            signal['decision_logic'] = f"RSI過高={rsi:.2f}，需要獲利了結"
         return signal
     
     def save_to_supabase(self, table: str, data: Dict) -> bool:
