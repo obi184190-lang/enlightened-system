@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 股票監控與交易決策系統
-Stock Monitor & Trading Bot for Taiwan Stock Market (2303, 2637, 4938)
+Stock Monitor & Trading Bot for Taiwan Stock Market
 """
 
 import os
@@ -10,7 +10,7 @@ import sys
 import json
 import logging
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 import time
 import pandas as pd
@@ -21,6 +21,9 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# 台灣時區設定
+TW_TZ = timezone(timedelta(hours=8))
 
 # 環境變量
 SUPABASE_URL = os.getenv('SUPABASE_URL')
@@ -34,7 +37,7 @@ if stocks_override:
     # 方式B：執行時臨時輸入
     stock_list = [s.strip() for s in stocks_override.split(',')]
     STOCK_CODES = [s for s in stock_list if s]
-    STOCK_NAMES = {code: code for code in STOCK_CODES}
+    STOCK_NAMES = {code: code for code in STOCK_CODES}  # 初始化，稍後會自動抓取
     logger.info(f"使用臨時股票清單：{STOCK_CODES}")
 else:
     # 方式A：讀取 stocks.txt
@@ -68,6 +71,36 @@ class TaiwanStockMonitor:
             'Authorization': f'Bearer {SUPABASE_ANON_KEY}',
             'Content-Type': 'application/json'
         }
+    
+    def get_stock_name(self, stock_code: str) -> str:
+        """
+        自動抓取股票名稱
+        如果 STOCK_NAMES 中沒有，就從 yfinance 取得
+        """
+        if stock_code in STOCK_NAMES and STOCK_NAMES[stock_code] != stock_code:
+            return STOCK_NAMES[stock_code]
+        
+        try:
+            import yfinance as yf
+            ticker = yf.Ticker(f"{stock_code}.TW")
+            info = ticker.info
+            
+            # 嘗試取得中文名稱或英文名稱
+            name = info.get('longName', '') or info.get('shortName', '') or stock_code
+            
+            # 如果是英文名稱，嘗試清理
+            if name and name != stock_code:
+                # 移除 "Co Ltd" 等後綴
+                name = name.replace(' Co Ltd', '').replace(' Corp', '').strip()
+                STOCK_NAMES[stock_code] = name
+                logger.info(f"自動抓取股票名稱：{stock_code} -> {name}")
+                return name
+        except Exception as e:
+            logger.warning(f"無法抓取 {stock_code} 的名稱: {str(e)}")
+        
+        # 如果都失敗，就返回代碼本身
+        STOCK_NAMES[stock_code] = stock_code
+        return stock_code
     
     def fetch_stock_data(self, stock_code: str) -> Optional[Dict]:
         """
@@ -120,7 +153,7 @@ class TaiwanStockMonitor:
     
     def generate_signal(self, stock_code: str, price: float, 
                        ma_20: Optional[float], ma_50: Optional[float], 
-                       rsi: Optional[float]) -> Dict:
+                       rsi: Optional[float], data: pd.DataFrame = None) -> Dict:
         """
         生成買賣信號
         策略：
@@ -138,7 +171,7 @@ class TaiwanStockMonitor:
             'decision_logic': '無明確信號'
         }
         
-       # ==========================================
+        # ==========================================
         # Phase 4 升級版：多指標加權信心度系統
         # ==========================================
         score = 0
@@ -169,35 +202,41 @@ class TaiwanStockMonitor:
 
         # 指標4：MACD計算 (權重25%)
         max_score += 25
-        try:
-            closes = data['Close'].values
-            if len(closes) >= 26:
-                ema12 = pd.Series(closes).ewm(span=12).mean().values
-                ema26 = pd.Series(closes).ewm(span=26).mean().values
-                macd_line = ema12 - ema26
-                signal_line = pd.Series(macd_line).ewm(span=9).mean().values
-                if macd_line[-1] > signal_line[-1] and macd_line[-2] <= signal_line[-2]:
-                    score += 25
-                    logic_parts.append("MACD金叉✓")
-                elif macd_line[-1] > signal_line[-1]:
-                    score += 15
-                    logic_parts.append("MACD多頭")
-        except:
+        if data is not None:
+            try:
+                closes = data['Close'].values
+                if len(closes) >= 26:
+                    ema12 = pd.Series(closes).ewm(span=12).mean().values
+                    ema26 = pd.Series(closes).ewm(span=26).mean().values
+                    macd_line = ema12 - ema26
+                    signal_line = pd.Series(macd_line).ewm(span=9).mean().values
+                    if macd_line[-1] > signal_line[-1] and macd_line[-2] <= signal_line[-2]:
+                        score += 25
+                        logic_parts.append("MACD金叉✓")
+                    elif macd_line[-1] > signal_line[-1]:
+                        score += 15
+                        logic_parts.append("MACD多頭")
+            except:
+                max_score -= 25
+        else:
             max_score -= 25
 
         # 指標5：成交量放大 (權重15%)
         max_score += 15
-        try:
-            volumes = data['Volume'].values
-            if len(volumes) >= 20:
-                avg_vol = volumes[-20:].mean()
-                if volumes[-1] > avg_vol * 1.5:
-                    score += 15
-                    logic_parts.append("成交量放大✓")
-                elif volumes[-1] > avg_vol * 1.2:
-                    score += 8
-                    logic_parts.append("成交量略增")
-        except:
+        if data is not None:
+            try:
+                volumes = data['Volume'].values
+                if len(volumes) >= 20:
+                    avg_vol = volumes[-20:].mean()
+                    if volumes[-1] > avg_vol * 1.5:
+                        score += 15
+                        logic_parts.append("成交量放大✓")
+                    elif volumes[-1] > avg_vol * 1.2:
+                        score += 8
+                        logic_parts.append("成交量略增")
+            except:
+                max_score -= 15
+        else:
             max_score -= 15
 
         # 計算最終信心度
@@ -226,6 +265,7 @@ class TaiwanStockMonitor:
             signal['signal_type'] = 'SELL'
             signal['confidence'] = 0.70
             signal['decision_logic'] = f"RSI過高={rsi:.2f}，需要獲利了結"
+        
         return signal
     
     def save_to_supabase(self, table: str, data: Dict) -> bool:
@@ -283,69 +323,95 @@ class TaiwanStockMonitor:
     
     def run_monitoring_cycle(self):
         """執行一個監控週期"""
+        # 使用台灣時間
+        tw_now = datetime.now(TW_TZ)
+        
         logger.info("=" * 60)
-        logger.info(f"開始監控週期 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f"開始監控週期 - {tw_now.strftime('%Y-%m-%d %H:%M:%S')} (台灣時間)")
         logger.info("=" * 60)
         
         all_signals = []
         
         for stock_code in STOCK_CODES:
-            logger.info(f"\n監控股票: {STOCK_NAMES[stock_code]} ({stock_code})")
+            # 先取得或自動抓取股票名稱
+            stock_name = self.get_stock_name(stock_code)
             
-            # 抓取最新數據
-            stock_data = self.fetch_stock_data(stock_code)
-            if not stock_data:
+            logger.info(f"\n監控股票: {stock_name} ({stock_code})")
+            
+            # 抓取歷史數據用於計算指標
+            try:
+                import yfinance as yf
+                ticker = yf.Ticker(f"{stock_code}.TW")
+                hist = ticker.history(period="60d")
+                hist = hist.dropna()
+                
+                if hist.empty:
+                    logger.error(f"{stock_code} 無歷史數據")
+                    continue
+                
+                # 取得最新數據
+                stock_data = self.fetch_stock_data(stock_code)
+                if not stock_data:
+                    continue
+                
+                price = stock_data['price']
+                logger.info(f"  當前價格: {price:.2f}")
+                
+                # 計算技術指標
+                closes = hist['Close'].values
+                ma_20 = self.calculate_ma(closes.tolist(), 20)
+                ma_50 = self.calculate_ma(closes.tolist(), 50)
+                rsi = self.calculate_rsi(closes.tolist(), 14)
+                
+                # 生成信號（傳入完整數據用於 MACD 和成交量計算）
+                signal = self.generate_signal(
+                    stock_code=stock_code,
+                    price=price,
+                    ma_20=ma_20,
+                    ma_50=ma_50,
+                    rsi=rsi,
+                    data=hist  # 傳入完整歷史數據
+                )
+                
+                all_signals.append(signal)
+                
+                # 保存交易日誌（使用台灣時間）
+                trade_log = {
+                    'stock_code': stock_code,
+                    'signal_type': signal['signal_type'],
+                    'price': price,
+                    'decision_logic': signal['decision_logic'],
+                    'profit_loss': 0.0,
+                    'timestamp': tw_now.isoformat()
+                }
+                
+                self.save_to_supabase('trade_logs', trade_log)
+                
+                logger.info(f"  信號: {signal['signal_type']} (信心度: {signal['confidence']:.2%})")
+                logger.info(f"  邏輯: {signal['decision_logic']}")
+                
+            except Exception as e:
+                logger.error(f"處理 {stock_code} 時發生錯誤: {str(e)}")
                 continue
-            
-            price = stock_data['price']
-            logger.info(f" 當前價格: {price:.2f}")
-            
-            # 這裡簡化處理：用當前價格作為示例
-            # 在實際應用中，應該從歷史數據計算
-            ma_20 = price * 0.98 # 簡化示例
-            ma_50 = price * 0.96 # 簡化示例
-            rsi = 55.0 # 簡化示例
-            
-            # 生成信號
-            signal = self.generate_signal(
-                stock_code=stock_code,
-                price=price,
-                ma_20=ma_20,
-                ma_50=ma_50,
-                rsi=rsi
-            )
-            
-            all_signals.append(signal)
-            
-            # 保存交易日誌
-            trade_log = {
-                'stock_code': stock_code,
-                'signal_type': signal['signal_type'],
-                'price': price,
-                'decision_logic': signal['decision_logic'],
-                'profit_loss': 0.0,
-                'timestamp': datetime.now().isoformat()
-            }
-            
-            self.save_to_supabase('trade_logs', trade_log)
-            
-            logger.info(f" 信號: {signal['signal_type']} (信心度: {signal['confidence']:.2%})")
-            logger.info(f" 邏輯: {signal['decision_logic']}")
         
         # 發送摘要通知
         if all_signals:
-            summary_message = self.generate_summary_message(all_signals)
+            summary_message = self.generate_summary_message(all_signals, tw_now)
             self.send_telegram_notification(summary_message)
         
         logger.info("\n" + "=" * 60)
         logger.info("監控週期完成")
         logger.info("=" * 60)
     
-    def generate_summary_message(self, signals: List[Dict]) -> str:
-        """生成摘要消息"""
+    def generate_summary_message(self, signals: List[Dict], tw_time: datetime) -> str:
+        """生成摘要消息（使用台灣時間和股票名稱）"""
         message = "📊 <b>股票監控摘要</b>\n"
-        message += f"時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        message += f"時間: {tw_time.strftime('%Y-%m-%d %H:%M:%S')} (台灣時間)\n\n"
+        
         for signal in signals:
+            stock_code = signal['code']
+            stock_name = self.get_stock_name(stock_code)
+            
             if signal['signal_type'] == 'BUY':
                 if signal['confidence'] >= 0.70:
                     emoji = "🔴"
@@ -362,16 +428,20 @@ class TaiwanStockMonitor:
             else:
                 emoji = "⚫"
                 level = "持有"
-            message += f"{emoji} <b>{signal['code']} {STOCK_NAMES.get(signal['code'], '')} [{level}]</b>\n"
+            
+            message += f"{emoji} <b>{stock_code} {stock_name} [{level}]</b>\n"
             message += f" 信號: {signal['signal_type']}\n"
             message += f" 價格: {signal['price']:.2f}\n"
             message += f" 信心度: {signal['confidence']:.2%}\n"
+            
             if signal['signal_type'] == 'BUY':
                 stop_loss = round(signal['price'] * 0.95, 2)
                 take_profit = round(signal['price'] * 1.15, 2)
                 message += f" 🎯 目標價: {take_profit} (+15%)\n"
                 message += f" 🛑 止損價: {stop_loss} (-5%)\n"
+            
             message += "\n"
+        
         return message   
     
 def main():
