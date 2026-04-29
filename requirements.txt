@@ -18,3 +18,7 @@ pandas>=2.0.0
 
 # 股票數據
 yfinance>=0.2.0
+
+# K線圖表生成（Phase 5.1 新增）
+mplfinance>=0.12.10b0
+matplotlib>=3.7.0
