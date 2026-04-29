@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-股票監控與交易決策系統
-Stock Monitor & Trading Bot for Taiwan Stock Market
+股票監控與交易決策系統 - Phase 5.1
+Stock Monitor & Trading Bot for Taiwan Stock Market with Candlestick Charts
 """
 
 import os
@@ -14,6 +14,21 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 import time
 import pandas as pd
+import tempfile
+
+# K線圖表套件（Phase 5.1 新增）
+try:
+    import mplfinance as mpf
+    import matplotlib
+    matplotlib.use('Agg')  # 無需 GUI 環境
+    import matplotlib.pyplot as plt
+    CHART_ENABLED = True
+    logger_temp = logging.getLogger(__name__)
+    logger_temp.info("K線圖表功能已啟用")
+except ImportError:
+    CHART_ENABLED = False
+    logger_temp = logging.getLogger(__name__)
+    logger_temp.warning("mplfinance 未安裝，K線圖表功能已禁用")
 
 # 設置日誌
 logging.basicConfig(
@@ -71,6 +86,7 @@ class TaiwanStockMonitor:
             'Authorization': f'Bearer {SUPABASE_ANON_KEY}',
             'Content-Type': 'application/json'
         }
+        self.temp_dir = tempfile.gettempdir()
     
     def get_stock_name(self, stock_code: str) -> str:
         """
@@ -150,6 +166,163 @@ class TaiwanStockMonitor:
         rsi = 100 - (100 / (1 + rs)) if rs >= 0 else 0
         
         return rsi
+    
+    def generate_candlestick_chart(self, stock_code: str, stock_name: str, 
+                                   data: pd.DataFrame, signal: Dict) -> Optional[str]:
+        """
+        生成K線圖表（Phase 5.1 新功能）
+        
+        Args:
+            stock_code: 股票代碼
+            stock_name: 股票名稱
+            data: 歷史數據（DataFrame）
+            signal: 信號資訊
+            
+        Returns:
+            圖片檔案路徑，失敗時返回 None
+        """
+        if not CHART_ENABLED:
+            logger.warning("K線圖表功能未啟用（mplfinance 未安裝）")
+            return None
+        
+        try:
+            # 準備數據（最近30天）
+            chart_data = data.tail(30).copy()
+            
+            if chart_data.empty or len(chart_data) < 2:
+                logger.warning(f"{stock_code} 數據不足，無法生成圖表")
+                return None
+            
+            # 計算 MA20 和 MA50
+            chart_data['MA20'] = chart_data['Close'].rolling(window=20, min_periods=1).mean()
+            chart_data['MA50'] = chart_data['Close'].rolling(window=50, min_periods=1).mean()
+            
+            # 設定圖表樣式
+            mc = mpf.make_marketcolors(
+                up='red',      # 上漲為紅色（台股習慣）
+                down='green',  # 下跌為綠色
+                edge='inherit',
+                wick='inherit',
+                volume='in',
+                alpha=0.9
+            )
+            
+            s = mpf.make_mpf_style(
+                marketcolors=mc,
+                gridstyle='-',
+                y_on_right=False,
+                rc={'font.family': 'sans-serif'}
+            )
+            
+            # 準備附加線條（MA20, MA50）
+            apds = [
+                mpf.make_addplot(chart_data['MA20'], color='orange', width=1.5, label='MA20'),
+                mpf.make_addplot(chart_data['MA50'], color='blue', width=1.5, label='MA50')
+            ]
+            
+            # 標註買賣信號
+            if signal['signal_type'] in ['BUY', 'SELL']:
+                # 在最後一個點標記信號
+                signal_marker = chart_data.copy()
+                signal_marker['Signal'] = None
+                signal_marker.loc[signal_marker.index[-1], 'Signal'] = signal_marker['Close'].iloc[-1]
+                
+                marker_color = 'red' if signal['signal_type'] == 'BUY' else 'green'
+                marker_symbol = '^' if signal['signal_type'] == 'BUY' else 'v'
+                
+                apds.append(
+                    mpf.make_addplot(
+                        signal_marker['Signal'],
+                        type='scatter',
+                        markersize=200,
+                        marker=marker_symbol,
+                        color=marker_color,
+                        label=f'{signal["signal_type"]} Signal'
+                    )
+                )
+            
+            # 生成圖表標題
+            signal_emoji = "🔴" if signal['confidence'] >= 0.70 else "🟡" if signal['confidence'] >= 0.50 else "⚪"
+            title = f"{stock_code} {stock_name}\n{signal['signal_type']} {signal_emoji} 信心度: {signal['confidence']:.1%}"
+            
+            # 生成圖片檔案路徑
+            chart_file = os.path.join(self.temp_dir, f"stock_{stock_code}.png")
+            
+            # 繪製圖表
+            mpf.plot(
+                chart_data,
+                type='candle',
+                style=s,
+                title=title,
+                ylabel='Price (TWD)',
+                volume=True,
+                ylabel_lower='Volume',
+                addplot=apds,
+                figsize=(12, 8),
+                tight_layout=True,
+                savefig=chart_file
+            )
+            
+            logger.info(f"K線圖表已生成：{chart_file}")
+            return chart_file
+            
+        except Exception as e:
+            logger.error(f"生成 {stock_code} K線圖表失敗: {str(e)}")
+            return None
+    
+    def send_telegram_photo(self, photo_path: str, caption: str) -> bool:
+        """
+        發送圖片到 Telegram（Phase 5.1 新功能）
+        
+        Args:
+            photo_path: 圖片檔案路徑
+            caption: 圖片說明文字
+            
+        Returns:
+            成功返回 True，失敗返回 False
+        """
+        telegram_token = os.getenv('TELEGRAM_BOT_TOKEN')
+        telegram_chat_id = os.getenv('TELEGRAM_CHAT_ID')
+        
+        if not telegram_token or not telegram_chat_id:
+            logger.warning("Telegram 未配置，無法發送圖片")
+            return False
+        
+        if not os.path.exists(photo_path):
+            logger.error(f"圖片檔案不存在：{photo_path}")
+            return False
+        
+        try:
+            url = f'https://api.telegram.org/bot{telegram_token}/sendPhoto'
+            
+            with open(photo_path, 'rb') as photo:
+                files = {'photo': photo}
+                data = {
+                    'chat_id': telegram_chat_id,
+                    'caption': caption,
+                    'parse_mode': 'HTML'
+                }
+                
+                response = requests.post(url, files=files, data=data, timeout=30)
+                
+                if response.status_code == 200:
+                    logger.info(f"圖片已發送到 Telegram：{caption[:30]}...")
+                    return True
+                else:
+                    logger.warning(f"Telegram 圖片發送失敗: {response.text}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Telegram 圖片發送異常: {str(e)}")
+            return False
+        finally:
+            # 清理臨時檔案
+            try:
+                if os.path.exists(photo_path):
+                    os.remove(photo_path)
+                    logger.debug(f"已清理臨時圖片：{photo_path}")
+            except:
+                pass
     
     def generate_signal(self, stock_code: str, price: float, 
                        ma_20: Optional[float], ma_50: Optional[float], 
@@ -328,6 +501,7 @@ class TaiwanStockMonitor:
         
         logger.info("=" * 60)
         logger.info(f"開始監控週期 - {tw_now.strftime('%Y-%m-%d %H:%M:%S')} (台灣時間)")
+        logger.info(f"Phase 5.1: K線圖表功能{'已啟用' if CHART_ENABLED else '未啟用'}")
         logger.info("=" * 60)
         
         all_signals = []
@@ -390,6 +564,25 @@ class TaiwanStockMonitor:
                 logger.info(f"  信號: {signal['signal_type']} (信心度: {signal['confidence']:.2%})")
                 logger.info(f"  邏輯: {signal['decision_logic']}")
                 
+                # Phase 5.1: 生成並發送 K 線圖表
+                if CHART_ENABLED:
+                    logger.info(f"  開始生成 K 線圖表...")
+                    chart_path = self.generate_candlestick_chart(
+                        stock_code=stock_code,
+                        stock_name=stock_name,
+                        data=hist,
+                        signal=signal
+                    )
+                    
+                    if chart_path:
+                        # 準備圖片說明
+                        caption = f"<b>{stock_code} {stock_name}</b>\n"
+                        caption += f"信號: {signal['signal_type']} | 信心度: {signal['confidence']:.1%}\n"
+                        caption += f"價格: {price:.2f} TWD"
+                        
+                        # 發送圖片
+                        self.send_telegram_photo(chart_path, caption)
+                
             except Exception as e:
                 logger.error(f"處理 {stock_code} 時發生錯誤: {str(e)}")
                 continue
@@ -406,7 +599,10 @@ class TaiwanStockMonitor:
     def generate_summary_message(self, signals: List[Dict], tw_time: datetime) -> str:
         """生成摘要消息（使用台灣時間和股票名稱）"""
         message = "📊 <b>股票監控摘要</b>\n"
-        message += f"時間: {tw_time.strftime('%Y-%m-%d %H:%M:%S')} (台灣時間)\n\n"
+        message += f"時間: {tw_time.strftime('%Y-%m-%d %H:%M:%S')} (台灣時間)\n"
+        if CHART_ENABLED:
+            message += "📈 K線圖表已生成\n"
+        message += "\n"
         
         for signal in signals:
             stock_code = signal['code']
