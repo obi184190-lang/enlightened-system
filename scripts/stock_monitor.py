@@ -698,9 +698,18 @@ class TaiwanStockMonitor:
                 logger.warning(f"{stock_code} 數據不足，無法生成圖表")
                 return None
             
-            # 計算 MA20 和 MA50
-            chart_data['MA20'] = chart_data['Close'].rolling(window=20, min_periods=1).mean()
-            chart_data['MA50'] = chart_data['Close'].rolling(window=50, min_periods=1).mean()
+            # 計算 MA20 和 MA50（容錯處理）
+            try:
+                chart_data['MA20'] = chart_data['Close'].rolling(window=20, min_periods=1).mean()
+                chart_data['MA50'] = chart_data['Close'].rolling(window=50, min_periods=1).mean()
+                
+                # 確保沒有 NaN 或 inf 值
+                chart_data['MA20'] = chart_data['MA20'].replace([np.inf, -np.inf], np.nan).fillna(method='bfill').fillna(method='ffill')
+                chart_data['MA50'] = chart_data['MA50'].replace([np.inf, -np.inf], np.nan).fillna(method='bfill').fillna(method='ffill')
+            except Exception as e:
+                logger.warning(f"MA 計算異常，使用預設值: {str(e)}")
+                chart_data['MA20'] = chart_data['Close']
+                chart_data['MA50'] = chart_data['Close']
             
             # 設定圖表樣式
             mc = mpf.make_marketcolors(
@@ -719,32 +728,42 @@ class TaiwanStockMonitor:
                 rc={'font.family': 'sans-serif'}
             )
             
-            # 準備附加線條（MA20, MA50）
-            apds = [
-                mpf.make_addplot(chart_data['MA20'], color='orange', width=1.5, label='MA20'),
-                mpf.make_addplot(chart_data['MA50'], color='blue', width=1.5, label='MA50')
-            ]
+            # 準備附加線條（MA20, MA50）- 容錯處理
+            apds = []
+            try:
+                if not chart_data['MA20'].isna().all():
+                    apds.append(mpf.make_addplot(chart_data['MA20'], color='orange', width=1.5, label='MA20'))
+                if not chart_data['MA50'].isna().all():
+                    apds.append(mpf.make_addplot(chart_data['MA50'], color='blue', width=1.5, label='MA50'))
+            except Exception as e:
+                logger.warning(f"MA 線條準備失敗: {str(e)}")
             
-            # 標註買賣信號
-            if signal['signal_type'] in ['BUY', 'SELL']:
-                # 在最後一個點標記信號
-                signal_marker = chart_data.copy()
-                signal_marker['Signal'] = None
-                signal_marker.loc[signal_marker.index[-1], 'Signal'] = signal_marker['Close'].iloc[-1]
-                
-                marker_color = 'red' if signal['signal_type'] == 'BUY' else 'green'
-                marker_symbol = '^' if signal['signal_type'] == 'BUY' else 'v'
-                
-                apds.append(
-                    mpf.make_addplot(
-                        signal_marker['Signal'],
-                        type='scatter',
-                        markersize=200,
-                        marker=marker_symbol,
-                        color=marker_color,
-                        label=f'{signal["signal_type"]} Signal'
-                    )
-                )
+            # 標註買賣信號（容錯處理）
+            try:
+                if signal['signal_type'] in ['BUY', 'SELL']:
+                    # 在最後一個點標記信號
+                    signal_marker = chart_data.copy()
+                    signal_marker['Signal'] = None
+                    last_close = signal_marker['Close'].iloc[-1]
+                    
+                    if pd.notna(last_close):
+                        signal_marker.loc[signal_marker.index[-1], 'Signal'] = last_close
+                        
+                        marker_color = 'red' if signal['signal_type'] == 'BUY' else 'green'
+                        marker_symbol = '^' if signal['signal_type'] == 'BUY' else 'v'
+                        
+                        apds.append(
+                            mpf.make_addplot(
+                                signal_marker['Signal'],
+                                type='scatter',
+                                markersize=200,
+                                marker=marker_symbol,
+                                color=marker_color,
+                                label=f'{signal["signal_type"]} Signal'
+                            )
+                        )
+            except Exception as e:
+                logger.warning(f"信號標記失敗: {str(e)}")
             
             # 生成圖表標題
             signal_emoji = "🔴" if signal['confidence'] >= 0.70 else "🟡" if signal['confidence'] >= 0.50 else "⚪"
