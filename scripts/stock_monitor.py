@@ -386,7 +386,7 @@ class AIDecisionEngine:
     def generate_ai_suggestion(stock_code: str, stock_name: str, price: float,
                               indicators: Dict, signal_type: str, confidence: float) -> str:
         """
-        生成 AI 分析建議（規則引擎版本）
+        生成 AI 分析建議（規則引擎版本，修復版）
         
         Returns:
             格式化的建議文字
@@ -398,7 +398,7 @@ class AIDecisionEngine:
         timing = AIDecisionEngine.recommend_timing(indicators, signal_type, price)
         
         # 組合建議
-        suggestion = f"\n🤖 <b>AI 智能分析</b>\n"
+        suggestion = f"\n🤖 <b>AI 智能分析 - {stock_code} {stock_name}</b>\n"
         suggestion += f"建議動作: {timing['action']}\n"
         suggestion += f"進場時機: {timing['timing']}\n"
         
@@ -412,27 +412,36 @@ class AIDecisionEngine:
         suggestion += f"\n💡 <b>理由分析</b>\n"
         suggestion += f"{timing['reason']}\n"
         
-        # 技術面總結
+        # 技術面總結（容錯處理）
         suggestion += f"\n📊 <b>技術面總結</b>\n"
+        
+        has_any_indicator = False
         
         if indicators.get('bollinger'):
             bb = indicators['bollinger']
             bb_status = "超買區" if bb['position'] > 0.8 else "超賣區" if bb['position'] < 0.2 else "中性區"
             suggestion += f"• 布林通道: {bb_status} (位置 {bb['position']:.1%})\n"
+            has_any_indicator = True
         
         if indicators.get('kd'):
             kd = indicators['kd']
             kd_signal = "金叉" if kd['k'] > kd['d'] else "死叉"
             suggestion += f"• KD指標: K={kd['k']:.1f}, D={kd['d']:.1f} ({kd_signal})\n"
+            has_any_indicator = True
         
         if indicators.get('adx'):
             adx = indicators['adx']
             suggestion += f"• ADX: {adx['adx']:.1f} ({adx['strength']})\n"
+            has_any_indicator = True
         
-        if indicators.get('williams_r'):
+        if indicators.get('williams_r') is not None:
             wr = indicators['williams_r']
             wr_status = "超買" if wr > -20 else "超賣" if wr < -80 else "中性"
             suggestion += f"• 威廉指標: {wr:.1f} ({wr_status})\n"
+            has_any_indicator = True
+        
+        if not has_any_indicator:
+            suggestion += "進階指標數據不足，建議謹慎操作\n"
         
         return suggestion
     
@@ -560,7 +569,7 @@ class TaiwanStockMonitor:
     
     def calculate_all_indicators(self, data: pd.DataFrame) -> Dict:
         """
-        計算所有技術指標（Phase 5.2.1）
+        計算所有技術指標（Phase 5.2.1 修復版）
         
         Returns:
             {
@@ -581,28 +590,91 @@ class TaiwanStockMonitor:
             highs = data['High']
             lows = data['Low']
             
-            # 基礎指標
-            indicators['ma_20'] = closes.rolling(window=20).mean().iloc[-1]
-            indicators['ma_50'] = closes.rolling(window=50).mean().iloc[-1]
-            indicators['rsi'] = self.calculate_rsi(closes.tolist(), 14)
+            # 基礎指標（加入容錯）
+            try:
+                ma_20 = closes.rolling(window=20).mean().iloc[-1]
+                if pd.notna(ma_20):
+                    indicators['ma_20'] = float(ma_20)
+            except:
+                pass
             
-            # MACD
-            if len(closes) >= 26:
-                ema12 = closes.ewm(span=12).mean().values
-                ema26 = closes.ewm(span=26).mean().values
-                macd_line = ema12 - ema26
-                signal_line = pd.Series(macd_line).ewm(span=9).mean().values
-                indicators['macd'] = {
-                    'line': macd_line[-1],
-                    'signal': signal_line[-1],
-                    'histogram': macd_line[-1] - signal_line[-1]
-                }
+            try:
+                ma_50 = closes.rolling(window=50).mean().iloc[-1]
+                if pd.notna(ma_50):
+                    indicators['ma_50'] = float(ma_50)
+            except:
+                pass
             
-            # Phase 5.2.1 新增指標
-            indicators['bollinger'] = self.advanced_indicators.calculate_bollinger_bands(closes)
-            indicators['kd'] = self.advanced_indicators.calculate_kd(highs, lows, closes)
-            indicators['williams_r'] = self.advanced_indicators.calculate_williams_r(highs, lows, closes)
-            indicators['adx'] = self.advanced_indicators.calculate_adx(highs, lows, closes)
+            try:
+                rsi = self.calculate_rsi(closes.tolist(), 14)
+                if rsi is not None and pd.notna(rsi):
+                    indicators['rsi'] = float(rsi)
+            except:
+                pass
+            
+            # MACD（加入容錯）
+            try:
+                if len(closes) >= 26:
+                    ema12 = closes.ewm(span=12).mean().values
+                    ema26 = closes.ewm(span=26).mean().values
+                    macd_line = ema12 - ema26
+                    signal_line = pd.Series(macd_line).ewm(span=9).mean().values
+                    if pd.notna(macd_line[-1]) and pd.notna(signal_line[-1]):
+                        indicators['macd'] = {
+                            'line': float(macd_line[-1]),
+                            'signal': float(signal_line[-1]),
+                            'histogram': float(macd_line[-1] - signal_line[-1])
+                        }
+            except:
+                pass
+            
+            # Phase 5.2.1 新增指標（加入容錯）
+            try:
+                bb = self.advanced_indicators.calculate_bollinger_bands(closes)
+                if bb is not None:
+                    # 確保所有值都是有效數字
+                    if all(pd.notna(v) for v in [bb['upper'], bb['middle'], bb['lower'], bb['bandwidth'], bb['position']]):
+                        indicators['bollinger'] = {
+                            'upper': float(bb['upper']),
+                            'middle': float(bb['middle']),
+                            'lower': float(bb['lower']),
+                            'bandwidth': float(bb['bandwidth']),
+                            'position': float(bb['position'])
+                        }
+            except Exception as e:
+                logger.warning(f"布林通道計算失敗: {str(e)}")
+            
+            try:
+                kd = self.advanced_indicators.calculate_kd(highs, lows, closes)
+                if kd is not None:
+                    if all(pd.notna(v) for v in [kd['k'], kd['d'], kd['j']]):
+                        indicators['kd'] = {
+                            'k': float(kd['k']),
+                            'd': float(kd['d']),
+                            'j': float(kd['j'])
+                        }
+            except Exception as e:
+                logger.warning(f"KD指標計算失敗: {str(e)}")
+            
+            try:
+                wr = self.advanced_indicators.calculate_williams_r(highs, lows, closes)
+                if wr is not None and pd.notna(wr):
+                    indicators['williams_r'] = float(wr)
+            except Exception as e:
+                logger.warning(f"威廉指標計算失敗: {str(e)}")
+            
+            try:
+                adx = self.advanced_indicators.calculate_adx(highs, lows, closes)
+                if adx is not None:
+                    if all(pd.notna(v) for v in [adx['adx'], adx['plus_di'], adx['minus_di']]):
+                        indicators['adx'] = {
+                            'adx': float(adx['adx']),
+                            'strength': adx['strength'],
+                            'plus_di': float(adx['plus_di']),
+                            'minus_di': float(adx['minus_di'])
+                        }
+            except Exception as e:
+                logger.warning(f"ADX計算失敗: {str(e)}")
             
         except Exception as e:
             logger.error(f"計算指標時發生錯誤: {str(e)}")
@@ -1035,9 +1107,15 @@ class TaiwanStockMonitor:
                         # 發送圖片
                         self.send_telegram_photo(chart_path, caption)
                         
-                        # Phase 5.2.1: 如果有 AI 建議，也發送
+                        # Phase 5.2.1: 如果有 AI 建議，延遲後發送（避免限流）
                         if signal.get('ai_suggestion'):
-                            self.send_telegram_notification(signal['ai_suggestion'])
+                            time.sleep(1)  # 延遲 1 秒
+                            logger.info(f"  發送 AI 智能分析...")
+                            success = self.send_telegram_notification(signal['ai_suggestion'])
+                            if success:
+                                logger.info(f"  AI 分析已發送")
+                            else:
+                                logger.warning(f"  AI 分析發送失敗")
                 
             except Exception as e:
                 logger.error(f"處理 {stock_code} 時發生錯誤: {str(e)}")
