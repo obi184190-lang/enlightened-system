@@ -1100,37 +1100,18 @@ class TaiwanStockMonitor:
                 logger.info(f"  信號: {signal['signal_type']} (信心度: {signal['confidence']:.2%})")
                 logger.info(f"  邏輯: {signal['decision_logic']}")
                 
-                # Phase 5.1: 生成並發送 K 線圖表
-                if CHART_ENABLED:
-                    logger.info(f"  開始生成 K 線圖表...")
-                    chart_path = self.generate_candlestick_chart(
+                # 發送詳細的 AI 分析通知（BUY/SELL 信號）
+                if signal['signal_type'] in ['BUY', 'SELL']:
+                    detailed_message = self.generate_detailed_analysis(
                         stock_code=stock_code,
                         stock_name=stock_name,
-                        data=hist,
-                        signal=signal
+                        price=price,
+                        signal=signal,
+                        indicators=indicators,
+                        tw_time=tw_now
                     )
-                    
-                    if chart_path:
-                        # 準備圖片說明（合併 AI 分析）
-                        signal_emoji = "🔴" if signal['confidence'] >= 0.70 else "🟡" if signal['confidence'] >= 0.50 else "⚪"
-                        
-                        caption = f"<b>📊 {stock_code} {stock_name}</b>\n"
-                        caption += f"價格: {price:.2f} TWD | 信號: {signal['signal_type']} {signal_emoji}\n"
-                        caption += f"信心度: {signal['confidence']:.1%}\n"
-                        
-                        # 止損止盈
-                        if signal['signal_type'] == 'BUY':
-                            target_price = price * 1.15
-                            stop_loss = price * 0.95
-                            caption += f"\n🎯 目標價: {target_price:.2f} (+15%)\n"
-                            caption += f"🛑 止損價: {stop_loss:.2f} (-5%)\n"
-                        
-                        # Phase 5.2.1: 合併 AI 智能分析
-                        if signal.get('ai_suggestion'):
-                            caption += f"\n{signal['ai_suggestion']}"
-                        
-                        # 發送圖片（已包含 AI 分析）
-                        self.send_telegram_photo(chart_path, caption)
+                    self.send_telegram_notification(detailed_message)
+                    logger.info(f"  已發送 AI 智能分析")
                 
             except Exception as e:
                 logger.error(f"處理 {stock_code} 時發生錯誤: {str(e)}")
@@ -1144,6 +1125,89 @@ class TaiwanStockMonitor:
         logger.info("\n" + "=" * 60)
         logger.info("監控週期完成")
         logger.info("=" * 60)
+    
+    def generate_detailed_analysis(self, stock_code: str, stock_name: str, 
+                                  price: float, signal: Dict, indicators: Dict,
+                                  tw_time: datetime) -> str:
+        """
+        生成詳細的 AI 智能分析訊息（Phase 5.2.1 優化版）
+        專注於核心價值：AI 分析，而非 K 線圖
+        """
+        # 信號等級標記
+        signal_emoji = "🔴" if signal['confidence'] >= 0.70 else "🟡" if signal['confidence'] >= 0.50 else "⚪"
+        signal_level = "[強烈買入]" if signal['confidence'] >= 0.70 else "[建議買入]" if signal['confidence'] >= 0.50 else "[觀望]"
+        
+        # 訊息標題
+        message = f"{signal_emoji} <b>{stock_code} {stock_name} {signal_level}</b>\n"
+        message += "━━━━━━━━━━━━━━━━━━━━\n"
+        
+        # 基本資訊
+        message += "📊 <b>基本資訊</b>\n"
+        message += f"• 價格: {price:.2f} TWD\n"
+        message += f"• 信號: {signal['signal_type']}\n"
+        message += f"• 信心度: {signal['confidence']:.2%}\n"
+        
+        # 止損止盈
+        if signal['signal_type'] == 'BUY':
+            target_price = price * 1.15
+            stop_loss = price * 0.95
+            message += f"• 🎯 目標價: {target_price:.2f} (+15%)\n"
+            message += f"• 🛑 止損價: {stop_loss:.2f} (-5%)\n"
+        
+        # AI 智能分析
+        if signal.get('ai_suggestion'):
+            # 從 AI 建議中提取資訊
+            ai_text = signal['ai_suggestion']
+            message += f"\n{ai_text}\n"
+        
+        # 技術面詳細分析
+        message += "\n📊 <b>技術面詳細分析</b>\n"
+        
+        # 基礎指標
+        if indicators.get('ma_20'):
+            ma20 = indicators['ma_20']
+            ma20_status = "價格突破，看多" if price > ma20 else "價格低於均線"
+            message += f"• MA20: {ma20:.2f} ({ma20_status})\n"
+        
+        if indicators.get('ma_50'):
+            ma50 = indicators['ma_50']
+            ma50_status = "黃金交叉，趨勢向上" if indicators.get('ma_20', 0) > ma50 else "趨勢不明"
+            message += f"• MA50: {ma50:.2f} ({ma50_status})\n"
+        
+        if indicators.get('rsi'):
+            rsi = indicators['rsi']
+            rsi_status = "超買" if rsi > 70 else "超賣" if rsi < 30 else "中性偏強" if rsi > 50 else "中性"
+            message += f"• RSI: {rsi:.1f} ({rsi_status})\n"
+        
+        if indicators.get('macd'):
+            macd = indicators['macd']
+            macd_status = "金叉" if macd['histogram'] > 0 else "死叉"
+            message += f"• MACD: {macd_status}\n"
+        
+        # 進階指標
+        if indicators.get('bollinger'):
+            bb = indicators['bollinger']
+            bb_status = "超買區" if bb['position'] > 0.8 else "超賣區" if bb['position'] < 0.2 else "中性區"
+            message += f"• 布林通道: {bb_status} (位置 {bb['position']:.0%})\n"
+        
+        if indicators.get('kd'):
+            kd = indicators['kd']
+            kd_signal = "金叉形成" if kd['k'] > kd['d'] else "死叉"
+            message += f"• KD指標: K={kd['k']:.1f}, D={kd['d']:.1f} ({kd_signal})\n"
+        
+        if indicators.get('adx'):
+            adx = indicators['adx']
+            message += f"• ADX: {adx['adx']:.1f} ({adx['strength']})\n"
+        
+        if indicators.get('williams_r'):
+            wr = indicators['williams_r']
+            wr_status = "超買" if wr > -20 else "超賣" if wr < -80 else "中性"
+            message += f"• 威廉指標: {wr:.1f} ({wr_status})\n"
+        
+        # 時間戳記
+        message += f"\n⏰ 時間: {tw_time.strftime('%Y-%m-%d %H:%M')} (台灣時間)"
+        
+        return message
     
     def generate_summary_message(self, signals: List[Dict], tw_time: datetime) -> str:
         """生成摘要消息（Phase 5.2.1 強化版）"""
