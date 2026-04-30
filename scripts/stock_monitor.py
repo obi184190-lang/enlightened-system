@@ -386,7 +386,7 @@ class AIDecisionEngine:
     def generate_ai_suggestion(stock_code: str, stock_name: str, price: float,
                               indicators: Dict, signal_type: str, confidence: float) -> str:
         """
-        生成 AI 分析建議（規則引擎版本，修復版）
+        生成 AI 分析建議（優化版，適合圖片說明）
         
         Returns:
             格式化的建議文字
@@ -397,51 +397,44 @@ class AIDecisionEngine:
         # 時機推薦
         timing = AIDecisionEngine.recommend_timing(indicators, signal_type, price)
         
-        # 組合建議
-        suggestion = f"\n🤖 <b>AI 智能分析 - {stock_code} {stock_name}</b>\n"
-        suggestion += f"建議動作: {timing['action']}\n"
-        suggestion += f"進場時機: {timing['timing']}\n"
+        # 組合建議（簡潔版）
+        suggestion = f"\n<b>🤖 AI 智能分析</b>\n"
+        suggestion += f"• 建議動作: {timing['action']}\n"
+        suggestion += f"• 進場時機: {timing['timing']}\n"
         
         if timing['entry_points']:
-            prices_str = ', '.join([f"{p:.2f}" for p in timing['entry_points']])
-            suggestion += f"建議價位: {prices_str}\n"
+            prices_str = ', '.join([f"{p:.2f}" for p in timing['entry_points'][:2]])  # 最多顯示2個價位
+            suggestion += f"• 建議價位: {prices_str}\n"
         
-        suggestion += f"\n風險評級: {risk['level']} (分數: {risk['score']}/100)\n"
-        suggestion += f"風險因素: {', '.join(risk['factors'])}\n"
+        suggestion += f"• 風險評級: {risk['level']} ({risk['score']}/100)\n"
         
-        suggestion += f"\n💡 <b>理由分析</b>\n"
-        suggestion += f"{timing['reason']}\n"
+        # 理由分析（簡化）
+        suggestion += f"\n💡 {timing['reason']}\n"
         
-        # 技術面總結（容錯處理）
-        suggestion += f"\n📊 <b>技術面總結</b>\n"
-        
-        has_any_indicator = False
+        # 技術面總結（容錯處理，簡化版）
+        tech_summary = []
         
         if indicators.get('bollinger'):
             bb = indicators['bollinger']
-            bb_status = "超買區" if bb['position'] > 0.8 else "超賣區" if bb['position'] < 0.2 else "中性區"
-            suggestion += f"• 布林通道: {bb_status} (位置 {bb['position']:.1%})\n"
-            has_any_indicator = True
+            bb_status = "超買" if bb['position'] > 0.8 else "超賣" if bb['position'] < 0.2 else "中性"
+            tech_summary.append(f"布林:{bb_status}({bb['position']:.0%})")
         
         if indicators.get('kd'):
             kd = indicators['kd']
             kd_signal = "金叉" if kd['k'] > kd['d'] else "死叉"
-            suggestion += f"• KD指標: K={kd['k']:.1f}, D={kd['d']:.1f} ({kd_signal})\n"
-            has_any_indicator = True
+            tech_summary.append(f"KD:{kd_signal}(K{kd['k']:.0f})")
         
         if indicators.get('adx'):
             adx = indicators['adx']
-            suggestion += f"• ADX: {adx['adx']:.1f} ({adx['strength']})\n"
-            has_any_indicator = True
+            tech_summary.append(f"ADX:{adx['adx']:.0f}({adx['strength']})")
         
         if indicators.get('williams_r') is not None:
             wr = indicators['williams_r']
             wr_status = "超買" if wr > -20 else "超賣" if wr < -80 else "中性"
-            suggestion += f"• 威廉指標: {wr:.1f} ({wr_status})\n"
-            has_any_indicator = True
+            tech_summary.append(f"W%R:{wr_status}")
         
-        if not has_any_indicator:
-            suggestion += "進階指標數據不足，建議謹慎操作\n"
+        if tech_summary:
+            suggestion += f"\n📊 技術面: {' | '.join(tech_summary)}"
         
         return suggestion
     
@@ -704,8 +697,8 @@ class TaiwanStockMonitor:
                 chart_data['MA50'] = chart_data['Close'].rolling(window=50, min_periods=1).mean()
                 
                 # 確保沒有 NaN 或 inf 值
-                chart_data['MA20'] = chart_data['MA20'].replace([np.inf, -np.inf], np.nan).fillna(method='bfill').fillna(method='ffill')
-                chart_data['MA50'] = chart_data['MA50'].replace([np.inf, -np.inf], np.nan).fillna(method='bfill').fillna(method='ffill')
+                chart_data['MA20'] = chart_data['MA20'].replace([np.inf, -np.inf], np.nan).bfill().ffill()
+                chart_data['MA50'] = chart_data['MA50'].replace([np.inf, -np.inf], np.nan).bfill().ffill()
             except Exception as e:
                 logger.warning(f"MA 計算異常，使用預設值: {str(e)}")
                 chart_data['MA20'] = chart_data['Close']
@@ -1118,23 +1111,26 @@ class TaiwanStockMonitor:
                     )
                     
                     if chart_path:
-                        # 準備圖片說明
-                        caption = f"<b>{stock_code} {stock_name}</b>\n"
-                        caption += f"信號: {signal['signal_type']} | 信心度: {signal['confidence']:.1%}\n"
-                        caption += f"價格: {price:.2f} TWD"
+                        # 準備圖片說明（合併 AI 分析）
+                        signal_emoji = "🔴" if signal['confidence'] >= 0.70 else "🟡" if signal['confidence'] >= 0.50 else "⚪"
                         
-                        # 發送圖片
-                        self.send_telegram_photo(chart_path, caption)
+                        caption = f"<b>📊 {stock_code} {stock_name}</b>\n"
+                        caption += f"價格: {price:.2f} TWD | 信號: {signal['signal_type']} {signal_emoji}\n"
+                        caption += f"信心度: {signal['confidence']:.1%}\n"
                         
-                        # Phase 5.2.1: 如果有 AI 建議，延遲後發送（避免限流）
+                        # 止損止盈
+                        if signal['signal_type'] == 'BUY':
+                            target_price = price * 1.15
+                            stop_loss = price * 0.95
+                            caption += f"\n🎯 目標價: {target_price:.2f} (+15%)\n"
+                            caption += f"🛑 止損價: {stop_loss:.2f} (-5%)\n"
+                        
+                        # Phase 5.2.1: 合併 AI 智能分析
                         if signal.get('ai_suggestion'):
-                            time.sleep(1)  # 延遲 1 秒
-                            logger.info(f"  發送 AI 智能分析...")
-                            success = self.send_telegram_notification(signal['ai_suggestion'])
-                            if success:
-                                logger.info(f"  AI 分析已發送")
-                            else:
-                                logger.warning(f"  AI 分析發送失敗")
+                            caption += f"\n{signal['ai_suggestion']}"
+                        
+                        # 發送圖片（已包含 AI 分析）
+                        self.send_telegram_photo(chart_path, caption)
                 
             except Exception as e:
                 logger.error(f"處理 {stock_code} 時發生錯誤: {str(e)}")
