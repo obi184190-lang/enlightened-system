@@ -1,0 +1,33 @@
+name: AI Performance Analysis
+
+on:
+  schedule:
+    # 每天台灣時間 08:00 執行（UTC 00:00）
+    - cron: '0 0 * * *'
+  workflow_dispatch:  # 允許手動觸發
+
+jobs:
+  analyze-performance:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install yfinance supabase requests
+      
+      - name: Run AI performance analysis
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python scripts/ai_performance_analyzer.py
