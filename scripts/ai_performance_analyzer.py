@@ -268,9 +268,10 @@ class AIPerformanceAnalyzer:
         
         for signal in buy_signals:
             analysis = self.analyze_signal_performance(signal)
-            if signal['confidence'] >= 0.70:
+            confidence = signal.get('confidence', 0.0)
+            if confidence >= 0.70:
                 high_conf.append(analysis)
-            elif signal['confidence'] >= 0.50:
+            elif confidence >= 0.50:
                 medium_conf.append(analysis)
             else:
                 low_conf.append(analysis)
