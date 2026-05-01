@@ -6,6 +6,7 @@ AI 分析表現追蹤系統 - Phase 5.2.2
 """
 
 import os
+import requests
 from datetime import datetime, timedelta
 from typing import Dict, List
 import yfinance as yf
@@ -15,12 +16,47 @@ from supabase import create_client, Client
 SUPABASE_URL = os.getenv('SUPABASE_URL')
 SUPABASE_KEY = os.getenv('SUPABASE_ANON_KEY')
 
+# Telegram 配置
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
+
 class AIPerformanceAnalyzer:
     """AI 表現分析器"""
     
     def __init__(self):
         """初始化"""
         self.supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    
+    def send_telegram_message(self, message: str) -> bool:
+        """
+        發送訊息到 Telegram
+        
+        Args:
+            message: 要發送的訊息
+            
+        Returns:
+            是否發送成功
+        """
+        if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+            print("Telegram 未配置，跳過通知")
+            return False
+        
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            'chat_id': TELEGRAM_CHAT_ID,
+            'text': message,
+            'parse_mode': 'HTML'
+        }
+        
+        try:
+            response = requests.post(url, json=payload, timeout=10)
+            response.raise_for_status()
+            print("Telegram 訊息已發送")
+            return True
+        except Exception as e:
+            print(f"Telegram 發送失敗: {e}")
+            return False
+    
     
     def get_recent_signals(self, days: int = 5) -> List[Dict]:
         """
@@ -71,11 +107,11 @@ class AIPerformanceAnalyzer:
         Returns:
             表現分析結果
         """
-        stock_code = signal['stock_code']
-        signal_type = signal['signal_type']
-        entry_price = signal['price']
-        confidence = signal['confidence']
-        signal_time = signal['timestamp']
+        stock_code = signal.get('stock_code', 'Unknown')
+        signal_type = signal.get('signal_type', 'HOLD')
+        entry_price = signal.get('price', 0)
+        confidence = signal.get('confidence', 0.0)
+        signal_time = signal.get('timestamp', '')
         
         # 獲取當前價格
         current_price = self.get_current_price(stock_code)
@@ -283,6 +319,10 @@ def main():
     # 信心度分析
     conf_report = analyzer.analyze_by_confidence_level(days=5)
     print(conf_report)
+    
+    # 發送到 Telegram
+    full_report = report + "\n\n" + conf_report
+    analyzer.send_telegram_message(full_report)
 
 
 if __name__ == '__main__':
