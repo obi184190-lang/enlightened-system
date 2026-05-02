@@ -315,6 +315,8 @@ def format_message_phase4(stock_code: str, stock_name: str, price: float,
 
 def main():
     """主函數"""
+    global PHASE_5_2_3_ENABLED  # 修復：宣告為全局變數
+    
     print("=" * 60)
     print("🚀 開明體系 - 股票監控系統")
     if PHASE_5_2_3_ENABLED:
