@@ -380,7 +380,7 @@ class ConfidenceCalculatorV2:
             if holding_pct > 0:
                 message += f" • 外資持股: {holding_pct:.1f}%\n"
             
-            message += f" • 籌碼評級: {strength}\n"
+                message += f" • 籌碼評級: {strength}\n"
         
         # 止盈止損
         if signal_type == 'BUY':
