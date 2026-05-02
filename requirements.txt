@@ -1,24 +1,13 @@
-# Taiwan Stock Market Monitoring System
-# 台灣股市監控系統依賴
+# 開明體系 Phase 5.2.3 - Python 依賴套件
 
-# HTTP 請求庫
+# 核心套件
 requests>=2.31.0
-
-# Supabase（數據庫）
 supabase>=2.3.0
-
-# Telegram Bot API
 python-telegram-bot>=20.3
-
-# 日期時間處理
 python-dateutil>=2.8.2
-
-# 數據處理（可選，用於未來的數據分析）
 pandas>=2.0.0
-
-# 股票數據
 yfinance>=0.2.0
 
-# K線圖表生成（Phase 5.1 新增）
-mplfinance>=0.12.10b0
-matplotlib>=3.7.0
+# Phase 5.2.3 新增套件
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
