@@ -332,8 +332,8 @@ def main():
     print(f"\n監控股票: {', '.join(stock_codes)}")
     print("=" * 60)
     
-    # 初始化 Telegram 訊息
-    telegram_message = "📊 <b>股票監控摘要</b>\n"
+    # 初始化 Telegram 訊息（簡化格式，避免 HTML 錯誤）
+    telegram_message = "📊 股票監控摘要\n"
     telegram_message += f"時間: {get_taiwan_time()} (台灣時間)\n"
     
     if PHASE_5_2_3_ENABLED:
