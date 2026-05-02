@@ -146,19 +146,18 @@ class ForeignInvestmentFetcher:
         Returns:
             {
                 'stock_code': str,
-                'foreign_buy': int,        # 外資買進張數
-                'foreign_sell': int,       # 外資賣出張數
-                'foreign_net': int,        # 外資買賣超張數
-                'foreign_holding_pct': float,  # 外資持股比例 %
-                'strength': str,           # 籌碼強度
+                'foreign_buy': int,
+                'foreign_sell': int,
+                'foreign_net': int,
+                'foreign_holding_pct': float,
+                'strength': str,
                 'timestamp': str
             }
         """
+        # 先嘗試主要來源
         try:
-            # 方法 1: 使用台灣證交所 API
             date_str = datetime.now().strftime('%Y%m%d')
             
-            # 外資買賣超 API
             url = "https://www.twse.com.tw/rwd/zh/fund/T86"
             params = {
                 'response': 'json',
@@ -167,7 +166,7 @@ class ForeignInvestmentFetcher:
             }
             
             headers = {
-                'User-Agent': 'Mozilla/5.0'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             }
             
             response = requests.get(url, params=params, headers=headers, timeout=10)
@@ -175,13 +174,10 @@ class ForeignInvestmentFetcher:
             if response.status_code == 200:
                 data = response.json()
                 
-                # 從資料中找到目標股票
-                if 'data' in data:
+                if 'data' in data and data['data']:
                     for item in data['data']:
-                        # item[0] 是股票代號
                         if item[0] == stock_code:
-                            foreign_net = int(item[3].replace(',', ''))  # 買賣超
-                            
+                            foreign_net = int(item[3].replace(',', ''))
                             strength = ForeignInvestmentFetcher._get_chip_strength(foreign_net)
                             
                             return {
@@ -193,13 +189,27 @@ class ForeignInvestmentFetcher:
                                 'strength': strength,
                                 'timestamp': datetime.now().isoformat()
                             }
-            
-            # 如果主要來源失敗，使用備用方法
-            return ForeignInvestmentFetcher._get_foreign_via_twstock(stock_code)
         
         except Exception as e:
-            print(f"⚠️ {stock_code} 外資數據主要來源失敗: {e}")
+            print(f"⚠️ {stock_code} 主要來源失敗: {e}")
+        
+        # 嘗試備用方法
+        try:
             return ForeignInvestmentFetcher._get_foreign_via_twstock(stock_code)
+        except Exception as e:
+            print(f"⚠️ {stock_code} 備用來源失敗: {e}")
+        
+        # 如果都失敗，返回預設值而非 None
+        print(f"ℹ️ {stock_code} 外資數據暫時無法獲取，使用預設值")
+        return {
+            'stock_code': stock_code,
+            'foreign_buy': 0,
+            'foreign_sell': 0,
+            'foreign_net': 0,
+            'foreign_holding_pct': 0.0,
+            'strength': '數據缺失',
+            'timestamp': datetime.now().isoformat()
+        }
     
     @staticmethod
     def _get_foreign_via_twstock(stock_code: str) -> Optional[Dict]:
