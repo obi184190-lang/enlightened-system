@@ -318,7 +318,7 @@ class ConfidenceCalculatorV2:
         foreign_data: Optional[Dict] = None
     ) -> str:
         """
-        格式化 Telegram 通知訊息
+        格式化 Telegram 通知訊息（修正版 - 避免 HTML 錯誤）
         
         Args:
             stock_code: 股票代號
@@ -334,46 +334,52 @@ class ConfidenceCalculatorV2:
         """
         signal_type, emoji, level_text = self.get_signal_level(confidence)
         
-        # 基本訊息
-        message = f"{emoji} <b>{stock_code} {stock_name}</b> [{level_text}]\n"
-        message += f" 信號: {signal_type}　價格: {price:.2f}　信心度: {confidence:.1%}\n\n"
+        # 基本訊息 - 簡化 HTML
+        message = f"{emoji} {stock_code} {stock_name} [{level_text}]\n"
+        message += f"信號: {signal_type}  價格: {price:.2f}  信心度: {confidence:.0%}\n\n"
         
         # 技術面分析
-        message += "📊 <b>技術面</b>\n"
+        message += "📊 技術面\n"
         
         # 分離技術指標和其他指標
         tech_parts = [p for p in logic_parts if not p.startswith(('🚢', '💰'))]
-        message += " • " + ", ".join(tech_parts[:3]) + "\n"
-        if len(tech_parts) > 3:
-            message += " • " + ", ".join(tech_parts[3:]) + "\n"
+        if tech_parts:
+            # 每行最多3個指標，避免過長
+            for i in range(0, len(tech_parts), 3):
+                batch = tech_parts[i:i+3]
+                message += " • " + ", ".join(batch) + "\n"
         
         # 航運指標（僅航運股）
         if bdi_data:
-            message += f"\n🚢 <b>航運指標</b>\n"
-            message += f" • BDI指數: {bdi_data['value']:.0f} ({bdi_data['change_percent']:+.1f}%) "
+            message += f"\n🚢 航運指標\n"
+            bdi_value = bdi_data.get('value', 0)
+            bdi_change = bdi_data.get('change_percent', 0)
+            bdi_level = bdi_data.get('level', '未知')
             
-            if bdi_data['change_percent'] > 0:
-                message += "📈\n"
-            else:
-                message += "📉\n"
-            
-            message += f" • 運價評級: {bdi_data['level']}\n"
+            # 簡化格式，避免複雜符號
+            direction = "📈" if bdi_change > 0 else "📉" if bdi_change < 0 else "➡️"
+            message += f" • BDI指數: {bdi_value:.0f} ({bdi_change:+.1f}%) {direction}\n"
+            message += f" • 運價評級: {bdi_level}\n"
         
         # 籌碼面分析
         if foreign_data:
-            message += f"\n💰 <b>籌碼面</b>\n"
+            message += f"\n💰 籌碼面\n"
             
             foreign_net = foreign_data.get('foreign_net', 0)
+            holding_pct = foreign_data.get('foreign_holding_pct', 0)
+            strength = foreign_data.get('strength', '未知')
+            
+            # 簡化格式
             if foreign_net > 0:
                 message += f" • 外資買超: +{foreign_net:,}張 🟢\n"
-            else:
+            elif foreign_net < 0:
                 message += f" • 外資賣超: {foreign_net:,}張 🔴\n"
+            else:
+                message += f" • 外資持平: {foreign_net:,}張 ⚪\n"
             
-            holding_pct = foreign_data.get('foreign_holding_pct', 0)
             if holding_pct > 0:
                 message += f" • 外資持股: {holding_pct:.1f}%\n"
             
-            strength = foreign_data.get('strength', '未知')
             message += f" • 籌碼評級: {strength}\n"
         
         # 止盈止損
