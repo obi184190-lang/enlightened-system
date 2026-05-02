@@ -161,8 +161,8 @@ class ConfidenceCalculatorV2:
                 logic_parts.append(f"🚢BDI={bdi_value:.0f}(中性)△")
             else:
                 logic_parts.append(f"🚢BDI={bdi_value:.0f}(弱勢)✗")
-            else:
-                logic_parts.append("🚢BDI無數據")
+        else:
+            logic_parts.append("🚢BDI無數據")
         
         # ===== 外資籌碼 (10%) ⭐ 新增 =====
         
@@ -183,8 +183,8 @@ class ConfidenceCalculatorV2:
                 logic_parts.append(f"💰外資{foreign_net:,}張△")
             else:
                 logic_parts.append(f"💰外資{foreign_net:,}張✗")
-            else:
-                logic_parts.append("💰外資無數據")
+        else:
+            logic_parts.append("💰外資無數據")
         
         confidence = score / max_score
         return confidence, logic_parts
@@ -285,8 +285,8 @@ class ConfidenceCalculatorV2:
                 logic_parts.append(f"💰外資{foreign_net:,}張△")
             else:
                 logic_parts.append(f"💰外資{foreign_net:,}張✗")
-            else:
-                 logic_parts.append("💰外資無數據")
+        else:
+            logic_parts.append("💰外資無數據")
         
         confidence = score / max_score
         return confidence, logic_parts
@@ -380,7 +380,7 @@ class ConfidenceCalculatorV2:
             if holding_pct > 0:
                 message += f" • 外資持股: {holding_pct:.1f}%\n"
             
-                message += f" • 籌碼評級: {strength}\n"
+            message += f" • 籌碼評級: {strength}\n"
         
         # 止盈止損
         if signal_type == 'BUY':
