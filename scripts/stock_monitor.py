@@ -334,7 +334,22 @@ def format_message_phase4(stock_code: str, stock_name: str, price: float,
 def main():
     """主函數"""
     global PHASE_5_2_3_ENABLED  # 修復：宣告為全局變數
-    
+    # 格式化訊息
+if PHASE_5_2_3_ENABLED and calculator and 'detail' in locals():
+    message = calculator.format_telegram_message(
+        stock_code=stock_code,
+        stock_name=stock_name,
+        price=price,
+        confidence=confidence,
+        detail=detail,
+        target_price=stock_data.get('target_price'),
+        stop_loss=stock_data.get('stop_loss')
+    )
+else:
+    # 舊版格式化方式（備用）
+    message = f"🟡 {stock_code} {stock_name} [建議買入]\n"
+    message += f"信心度: {confidence}%\n"
+
     print("=" * 60)
     print("🚀 開明體系 - 股票監控系統")
     if PHASE_5_2_3_ENABLED:
