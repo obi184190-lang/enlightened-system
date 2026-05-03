@@ -13,16 +13,35 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
 import time
 
-# === Phase 5.2.3 信心度計算器 ===
-try:
-    from confidence_calculator_v2 import ConfidenceCalculatorV2
-    calculator = ConfidenceCalculatorV2()          # ← 建立實例
-    PHASE_5_2_3_ENABLED = True
-    print("✅ Phase 5.2.3 信心度計算器載入成功 (YAML 動態權重)")
-except Exception as e:
-    print(f"⚠️ Phase 5.2.3 載入失敗: {e}")
-    PHASE_5_2_3_ENABLED = False
-    calculator = None
+# Phase 5.2.3 使用升級版計算
+if PHASE_5_2_3_ENABLED and calculator:
+    # 準備計算器需要的輸入資料
+    calc_input = {
+        "code": stock_code,
+        "sector": stock_data.get("sector", "general"),
+        "price": stock_data.get("price"),
+        "ma20": stock_data.get("ma20"),
+        "ma50": stock_data.get("ma50"),
+        "rsi": stock_data.get("rsi"),
+        "macd_hist": stock_data.get("macd_hist"),
+        "volume_ratio": stock_data.get("volume_ratio", 1.0),
+        "bdi_change_pct": bdi_for_stock.get("change_pct", 0) if isinstance(bdi_for_stock, dict) else 0,
+        "foreign_strength": foreign_data.get("strength", 0.5) if isinstance(foreign_data, dict) else 0.5,
+    }
+
+    confidence, detail = calculator.calculate_confidence(calc_input)
+    
+    logic_breakdown = detail.get('breakdown', {})
+    signal = detail.get('signal', '觀望')
+    
+    print(f"✅ Phase 5.2.3 信心度計算完成 → {confidence}% ({signal})")
+else:
+    # 舊版備用（Phase 4）
+    confidence = 55
+    logic_breakdown = {}
+    signal = "觀望"
+    print("⚠️ 使用 Phase 4 備用信心度計算")
+
 # 環境變數
 SUPABASE_URL = os.getenv('SUPABASE_URL')
 SUPABASE_ANON_KEY = os.getenv('SUPABASE_ANON_KEY')
@@ -386,20 +405,35 @@ def main():
         
         price = stock_data['price']
         
-        # 計算信心度
-        if PHASE_5_2_3_ENABLED and calculator:
-            # Phase 5.2.3: 使用升級版計算
-            foreign_data = foreign_data_all.get(stock_code)
-            bdi_for_stock = market_data.get_bdi_for_stock(stock_code) if market_data else None
-            
-            confidence, logic_parts = calculator.calculate_confidence(
-                stock_code,
-                stock_data,
-                bdi_for_stock,
-                foreign_data
-            )
-            
-            # 格式化訊息
+        # Phase 5.2.3 使用升級版計算
+if PHASE_5_2_3_ENABLED and calculator:
+    # 準備計算器需要的輸入資料
+    calc_input = {
+        "code": stock_code,
+        "sector": stock_data.get("sector", "general"),
+        "price": stock_data.get("price"),
+        "ma20": stock_data.get("ma20"),
+        "ma50": stock_data.get("ma50"),
+        "rsi": stock_data.get("rsi"),
+        "macd_hist": stock_data.get("macd_hist"),
+        "volume_ratio": stock_data.get("volume_ratio", 1.0),
+        "bdi_change_pct": bdi_for_stock.get("change_pct", 0) if isinstance(bdi_for_stock, dict) else 0,
+        "foreign_strength": foreign_data.get("strength", 0.5) if isinstance(foreign_data, dict) else 0.5,
+    }
+
+    confidence, detail = calculator.calculate_confidence(calc_input)
+    
+    logic_breakdown = detail.get('breakdown', {})
+    signal = detail.get('signal', '觀望')
+    
+    print(f"✅ Phase 5.2.3 信心度計算完成 → {confidence}% ({signal})")
+else:
+    # 舊版備用（Phase 4）
+    confidence = 55
+    logic_breakdown = {}
+    signal = "觀望"
+    print("⚠️ 使用 Phase 4 備用信心度計算")
+
             message = calculator.format_telegram_message(
                 stock_code,
                 stock_name,
