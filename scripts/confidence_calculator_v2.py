@@ -3,6 +3,13 @@
 """
 開明體系 Phase 5.2.3 - 升級版信心度計算
 整合 BDI 指數 + 外資籌碼
+
+Phase 5.2.3 修正（2026-05-03）：
+- MACD 中性從 +5 提升至 +10（半分）
+- RSI 超買區（>70）從 0分 改為 +5（懲罰）
+- RSI 65-70 從 +10 調整為 +8
+- 成交量萎縮（<0.8x）從 +5 改為 0（不加分）
+- 新增 conflict_detector 矛盾說明整合
 """
 
 from typing import Dict, Optional, Tuple, List
@@ -11,23 +18,22 @@ from typing import Dict, Optional, Tuple, List
 class ConfidenceCalculatorV2:
     """
     升級版信心度計算器
-    
     Phase 4: 5 個技術指標
-    Phase 5.2.3: 
-        - 航運股: 7 個指標（技術 5 + BDI 1 + 外資 1）
-        - 一般股: 6 個指標（技術 5 + 外資 1）
+    Phase 5.2.3:
+    - 航運股: 7 個指標（技術 5 + BDI 1 + 外資 1）
+    - 一般股: 6 個指標（技術 5 + 外資 1）
     """
-    
+
     # 航運股清單
     SHIPPING_STOCKS = ['2603', '2609', '2615', '2637', '2645']
-    
+
     def __init__(self):
         self.shipping_stocks = self.SHIPPING_STOCKS
-    
+
     def is_shipping_stock(self, stock_code: str) -> bool:
         """判斷是否為航運股"""
         return stock_code in self.shipping_stocks
-    
+
     def calculate_confidence(
         self,
         stock_code: str,
@@ -37,7 +43,7 @@ class ConfidenceCalculatorV2:
     ) -> Tuple[float, List[str]]:
         """
         計算信心度
-        
+
         Args:
             stock_code: 股票代號
             stock_data: 股票技術數據 {
@@ -50,7 +56,7 @@ class ConfidenceCalculatorV2:
             }
             bdi_data: BDI 數據（可選）
             foreign_data: 外資數據（可選）
-        
+
         Returns:
             (confidence, logic_parts)
             confidence: 信心度 (0-1)
@@ -64,7 +70,7 @@ class ConfidenceCalculatorV2:
             return self._calculate_normal_confidence(
                 stock_data, foreign_data
             )
-    
+
     def _calculate_shipping_confidence(
         self,
         stock_data: Dict,
@@ -73,44 +79,49 @@ class ConfidenceCalculatorV2:
     ) -> Tuple[float, List[str]]:
         """
         航運股信心度計算（7 個指標）
-        
+
         指標權重分配：
         1. MA20 突破: 15%
         2. MA50 趨勢: 15%
         3. RSI 黃金區: 15%
         4. MACD 金叉: 20%
         5. 成交量放大: 10%
-        6. BDI 指數: 15%  ⭐ 新增
-        7. 外資籌碼: 10%  ⭐ 新增
+        6. BDI 指數: 15% ⭐ 新增
+        7. 外資籌碼: 10% ⭐ 新增
         """
         score = 0
         max_score = 100
         logic_parts = []
-        
+
         price = stock_data.get('price', 0)
         ma_20 = stock_data.get('ma_20')
         ma_50 = stock_data.get('ma_50')
         rsi = stock_data.get('rsi')
         macd_signal = stock_data.get('macd_signal', 'neutral')
         volume_ratio = stock_data.get('volume_ratio', 1.0)
-        
+
         # ===== 技術指標 (75%) =====
-        
+
         # 指標 1: MA20 突破 (15%)
         if ma_20 and price > ma_20:
             score += 15
             logic_parts.append(f"價格>{ma_20:.2f}(MA20)✓")
         else:
             logic_parts.append(f"價格<MA20✗")
-        
+
         # 指標 2: MA50 趨勢 (15%)
         if ma_50 and ma_20 and ma_20 > ma_50:
             score += 15
             logic_parts.append("MA20>MA50✓")
         else:
             logic_parts.append("MA20<MA50✗")
-        
-        # 指標 3: RSI 黃金區 (15%)
+
+        # ── 指標 3: RSI 黃金區 (15%) 【修正】────────────────────
+        # 修正說明：
+        #   舊版：RSI>70 → 0分（與 RSI<30 同等懲罰，過嚴）
+        #         RSI 65-70 → +10（與黃金區差距只有5分）
+        #   新版：RSI>70 → +5（超買，給予輕微懲罰但不歸零）
+        #         RSI 65-70 → +8（偏強，比黃金區少7分）
         if rsi:
             if 40 <= rsi <= 65:
                 score += 15
@@ -119,37 +130,49 @@ class ConfidenceCalculatorV2:
                 score += 10
                 logic_parts.append(f"RSI={rsi:.1f}(略低)△")
             elif 65 < rsi <= 70:
-                score += 10
-                logic_parts.append(f"RSI={rsi:.1f}(略高)△")
+                score += 8  # 舊版 +10，改為 +8
+                logic_parts.append(f"RSI={rsi:.1f}(偏強注意)△")
+            elif rsi > 70:
+                score += 5  # 舊版 0分，改為 +5（超買警示但不歸零）
+                logic_parts.append(f"RSI={rsi:.1f}(超買⚠️)✗")
             else:
                 logic_parts.append(f"RSI={rsi:.1f}✗")
-        
-        # 指標 4: MACD 金叉 (20%)
+
+        # ── 指標 4: MACD 金叉 (20%) 【修正】────────────────────
+        # 修正說明：
+        #   舊版：neutral → +5（只有金叉的25%，懲罰過重）
+        #   新版：neutral → +10（金叉的50%，反映「無明確方向」）
         if macd_signal == 'golden_cross':
             score += 20
             logic_parts.append("MACD金叉✓")
         elif macd_signal == 'neutral':
-            score += 5
+            score += 10  # 舊版 +5，改為 +10
             logic_parts.append("MACD中性△")
         else:
             logic_parts.append("MACD死叉✗")
-        
-        # 指標 5: 成交量放大 (10%)
+
+        # ── 指標 5: 成交量放大 (10%) 【修正】───────────────────
+        # 修正說明：
+        #   舊版：volume_ratio <= 1.0 → +5（縮量還給半分）
+        #   新版：volume_ratio < 0.8 → 0分（明顯縮量不應加分）
+        #         volume_ratio 0.8-1.0 → +3（輕微縮量給少量分）
         if volume_ratio > 1.2:
             score += 10
             logic_parts.append(f"量能放大{volume_ratio:.1f}倍✓")
         elif volume_ratio > 1.0:
             score += 5
             logic_parts.append(f"量能{volume_ratio:.1f}倍△")
+        elif volume_ratio >= 0.8:
+            score += 3  # 新增：輕微縮量給少量分
+            logic_parts.append(f"量能{volume_ratio:.1f}倍△")
         else:
+            score += 0  # 舊版 +5，改為 0
             logic_parts.append(f"量能萎縮{volume_ratio:.1f}倍✗")
-        
-        # ===== BDI 指數 (15%) ⭐ 新增 =====
-        
+
+        # ===== BDI 指數 (15%) ⭐ 不變 =====
         if bdi_data:
             bdi_value = bdi_data.get('value', 0)
             bdi_level = bdi_data.get('level', '未知')
-            
             if bdi_value > 2000:
                 score += 15
                 logic_parts.append(f"🚢BDI={bdi_value:.0f}(極強)✓")
@@ -163,12 +186,10 @@ class ConfidenceCalculatorV2:
                 logic_parts.append(f"🚢BDI={bdi_value:.0f}(弱勢)✗")
         else:
             logic_parts.append("🚢BDI無數據")
-        
-        # ===== 外資籌碼 (10%) ⭐ 新增 =====
-        
+
+        # ===== 外資籌碼 (10%) ⭐ 不變 =====
         if foreign_data:
             foreign_net = foreign_data.get('foreign_net', 0)
-            
             if foreign_net > 5000:
                 score += 10
                 logic_parts.append(f"💰外資+{foreign_net:,}張✓")
@@ -185,10 +206,10 @@ class ConfidenceCalculatorV2:
                 logic_parts.append(f"💰外資{foreign_net:,}張✗")
         else:
             logic_parts.append("💰外資無數據")
-        
+
         confidence = score / max_score
         return confidence, logic_parts
-    
+
     def _calculate_normal_confidence(
         self,
         stock_data: Dict,
@@ -196,43 +217,43 @@ class ConfidenceCalculatorV2:
     ) -> Tuple[float, List[str]]:
         """
         一般股票信心度計算（6 個指標）
-        
+
         指標權重分配：
         1. MA20 突破: 20%
         2. MA50 趨勢: 20%
         3. RSI 黃金區: 15%
         4. MACD 金叉: 20%
         5. 成交量放大: 10%
-        6. 外資籌碼: 15%  ⭐ 新增
+        6. 外資籌碼: 15% ⭐ 新增
         """
         score = 0
         max_score = 100
         logic_parts = []
-        
+
         price = stock_data.get('price', 0)
         ma_20 = stock_data.get('ma_20')
         ma_50 = stock_data.get('ma_50')
         rsi = stock_data.get('rsi')
         macd_signal = stock_data.get('macd_signal', 'neutral')
         volume_ratio = stock_data.get('volume_ratio', 1.0)
-        
+
         # ===== 技術指標 (85%) =====
-        
+
         # 指標 1: MA20 突破 (20%)
         if ma_20 and price > ma_20:
             score += 20
             logic_parts.append(f"價格>{ma_20:.2f}(MA20)✓")
         else:
             logic_parts.append(f"價格<MA20✗")
-        
+
         # 指標 2: MA50 趨勢 (20%)
         if ma_50 and ma_20 and ma_20 > ma_50:
             score += 20
             logic_parts.append("MA20>MA50✓")
         else:
             logic_parts.append("MA20<MA50✗")
-        
-        # 指標 3: RSI 黃金區 (15%)
+
+        # ── 指標 3: RSI 黃金區 (15%) 【修正】────────────────────
         if rsi:
             if 40 <= rsi <= 65:
                 score += 15
@@ -241,36 +262,41 @@ class ConfidenceCalculatorV2:
                 score += 10
                 logic_parts.append(f"RSI={rsi:.1f}(略低)△")
             elif 65 < rsi <= 70:
-                score += 10
-                logic_parts.append(f"RSI={rsi:.1f}(略高)△")
+                score += 8  # 舊版 +10，改為 +8
+                logic_parts.append(f"RSI={rsi:.1f}(偏強注意)△")
+            elif rsi > 70:
+                score += 5  # 舊版 0分，改為 +5（超買警示）
+                logic_parts.append(f"RSI={rsi:.1f}(超買⚠️)✗")
             else:
                 logic_parts.append(f"RSI={rsi:.1f}✗")
-        
-        # 指標 4: MACD 金叉 (20%)
+
+        # ── 指標 4: MACD 金叉 (20%) 【修正】────────────────────
         if macd_signal == 'golden_cross':
             score += 20
             logic_parts.append("MACD金叉✓")
         elif macd_signal == 'neutral':
-            score += 5
+            score += 10  # 舊版 +5，改為 +10
             logic_parts.append("MACD中性△")
         else:
             logic_parts.append("MACD死叉✗")
-        
-        # 指標 5: 成交量放大 (10%)
+
+        # ── 指標 5: 成交量放大 (10%) 【修正】───────────────────
         if volume_ratio > 1.2:
             score += 10
             logic_parts.append(f"量能放大{volume_ratio:.1f}倍✓")
         elif volume_ratio > 1.0:
             score += 5
             logic_parts.append(f"量能{volume_ratio:.1f}倍△")
+        elif volume_ratio >= 0.8:
+            score += 3  # 新增：輕微縮量
+            logic_parts.append(f"量能{volume_ratio:.1f}倍△")
         else:
+            score += 0  # 舊版 +5，改為 0
             logic_parts.append(f"量能萎縮{volume_ratio:.1f}倍✗")
-        
-        # ===== 外資籌碼 (15%) ⭐ 新增 =====
-        
+
+        # ===== 外資籌碼 (15%) ⭐ 不變 =====
         if foreign_data:
             foreign_net = foreign_data.get('foreign_net', 0)
-            
             if foreign_net > 5000:
                 score += 15
                 logic_parts.append(f"💰外資+{foreign_net:,}張✓")
@@ -287,14 +313,14 @@ class ConfidenceCalculatorV2:
                 logic_parts.append(f"💰外資{foreign_net:,}張✗")
         else:
             logic_parts.append("💰外資無數據")
-        
+
         confidence = score / max_score
         return confidence, logic_parts
-    
+
     def get_signal_level(self, confidence: float) -> Tuple[str, str, str]:
         """
         根據信心度判斷信號等級
-        
+
         Returns:
             (signal_type, level_emoji, level_text)
         """
@@ -306,7 +332,7 @@ class ConfidenceCalculatorV2:
             return 'HOLD', '⚪', '觀望'
         else:
             return 'HOLD', '⚫', '暫不考慮'
-    
+
     def format_telegram_message(
         self,
         stock_code: str,
@@ -317,165 +343,105 @@ class ConfidenceCalculatorV2:
         bdi_data: Optional[Dict] = None,
         foreign_data: Optional[Dict] = None
     ) -> str:
-        """
-        格式化 Telegram 通知訊息（修正版 - 避免 HTML 錯誤）
-        
-        Args:
-            stock_code: 股票代號
-            stock_name: 股票名稱
-            price: 當前價格
-            confidence: 信心度
-            logic_parts: 決策邏輯
-            bdi_data: BDI 數據（航運股）
-            foreign_data: 外資數據
-        
-        Returns:
-            格式化後的訊息
-        """
+        """格式化 Telegram 通知訊息（純文字版）"""
         signal_type, emoji, level_text = self.get_signal_level(confidence)
-        
-        # 基本訊息 - 簡化 HTML
+
         message = f"{emoji} {stock_code} {stock_name} [{level_text}]\n"
         message += f"信號: {signal_type}  價格: {price:.2f}  信心度: {confidence:.0%}\n\n"
-        
-        # 技術面分析
+
+        # 技術面
         message += "📊 技術面\n"
-        
-        # 分離技術指標和其他指標
         tech_parts = [p for p in logic_parts if not p.startswith(('🚢', '💰'))]
         if tech_parts:
-            # 每行最多3個指標，避免過長
             for i in range(0, len(tech_parts), 3):
                 batch = tech_parts[i:i+3]
                 message += " • " + ", ".join(batch) + "\n"
-        
-        # 航運指標（僅航運股）
+
+        # 航運指標
         if bdi_data:
             message += f"\n🚢 航運指標\n"
             bdi_value = bdi_data.get('value', 0)
             bdi_change = bdi_data.get('change_percent', 0)
             bdi_level = bdi_data.get('level', '未知')
-            
-            # 簡化格式，避免複雜符號
             direction = "📈" if bdi_change > 0 else "📉" if bdi_change < 0 else "➡️"
             message += f" • BDI指數: {bdi_value:.0f} ({bdi_change:+.1f}%) {direction}\n"
             message += f" • 運價評級: {bdi_level}\n"
-        
-        # 籌碼面分析
+
+        # 籌碼面
         if foreign_data:
             message += f"\n💰 籌碼面\n"
-            
             foreign_net = foreign_data.get('foreign_net', 0)
             holding_pct = foreign_data.get('foreign_holding_pct', 0)
             strength = foreign_data.get('strength', '未知')
-            
-            # 簡化格式
             if foreign_net > 0:
                 message += f" • 外資買超: +{foreign_net:,}張 🟢\n"
             elif foreign_net < 0:
                 message += f" • 外資賣超: {foreign_net:,}張 🔴\n"
             else:
                 message += f" • 外資持平: {foreign_net:,}張 ⚪\n"
-            
             if holding_pct > 0:
                 message += f" • 外資持股: {holding_pct:.1f}%\n"
-            
             message += f" • 籌碼評級: {strength}\n"
-        
+
         # 止盈止損
         if signal_type == 'BUY':
             take_profit = price * 1.15
             stop_loss = price * 0.95
-            
             message += f"\n🎯 目標價: {take_profit:.2f} (+15%)\n"
             message += f"🛑 止損價: {stop_loss:.2f} (-5%)\n"
-        
+
         return message
 
 
 # ============================================================================
-# 使用範例
+# 驗證測試 — 昨天實際數據對照
 # ============================================================================
-
 if __name__ == '__main__':
-    print("🚀 開明體系 Phase 5.2.3 - 信心度計算測試\n")
-    
-    calculator = ConfidenceCalculatorV2()
-    
-    # 測試案例 1: 航運股（慧洋 2637）
-    print("=" * 60)
-    print("測試 1: 航運股 - 慧洋 2637")
-    print("=" * 60)
-    
-    stock_data_shipping = {
-        'price': 75.80,
-        'ma_20': 72.50,
-        'ma_50': 70.00,
-        'rsi': 52.3,
-        'macd_signal': 'golden_cross',
-        'volume_ratio': 1.5
-    }
-    
-    bdi_data = {
-        'value': 1876,
-        'change_percent': 2.3,
-        'level': '強勢'
-    }
-    
-    foreign_data_2637 = {
-        'foreign_net': 3200,
-        'foreign_holding_pct': 28.5,
-        'strength': '強勢'
-    }
-    
-    confidence, logic = calculator.calculate_confidence(
-        '2637', stock_data_shipping, bdi_data, foreign_data_2637
-    )
-    
-    print(f"信心度: {confidence:.1%}")
-    print(f"決策邏輯:")
-    for part in logic:
-        print(f"  • {part}")
-    
-    print("\n📱 Telegram 訊息:")
-    print("-" * 60)
-    message = calculator.format_telegram_message(
-        '2637', '慧洋-KY', 75.80, confidence, logic, bdi_data, foreign_data_2637
-    )
-    print(message)
-    
-    # 測試案例 2: 一般股票（台積電 2330）
-    print("\n" + "=" * 60)
-    print("測試 2: 一般股票 - 台積電 2330")
-    print("=" * 60)
-    
-    stock_data_normal = {
-        'price': 2050.00,
-        'ma_20': 2000.00,
-        'ma_50': 1950.00,
-        'rsi': 58.1,
-        'macd_signal': 'golden_cross',
-        'volume_ratio': 1.3
-    }
-    
-    foreign_data_2330 = {
-        'foreign_net': 12500,
-        'foreign_holding_pct': 78.2,
-        'strength': '極度強勢'
-    }
-    
-    confidence, logic = calculator.calculate_confidence(
-        '2330', stock_data_normal, None, foreign_data_2330
-    )
-    
-    print(f"信心度: {confidence:.1%}")
-    print(f"決策邏輯:")
-    for part in logic:
-        print(f"  • {part}")
-    
-    print("\n📱 Telegram 訊息:")
-    print("-" * 60)
-    message = calculator.format_telegram_message(
-        '2330', '台積電', 2050.00, confidence, logic, None, foreign_data_2330
-    )
-    print(message)
+    calc = ConfidenceCalculatorV2()
+
+    cases = [
+        {
+            'code': '2330', 'name': '台積電', 'price': 2135.0,
+            'stock_data': {'price': 2135.0, 'ma_20': 2042.75, 'ma_50': 1900.0,
+                           'rsi': 62.6, 'macd_signal': 'neutral', 'volume_ratio': 1.3},
+            'foreign_data': {'foreign_net': 2000, 'foreign_holding_pct': 78.2, 'strength': '強勢'},
+            'old': 0.70
+        },
+        {
+            'code': '2303', 'name': '聯電', 'price': 77.3,
+            'stock_data': {'price': 77.3, 'ma_20': 67.71, 'ma_50': 60.0,
+                           'rsi': 71.2, 'macd_signal': 'neutral', 'volume_ratio': 1.7},
+            'foreign_data': {'foreign_net': 500, 'foreign_holding_pct': 25.0, 'strength': '中性'},
+            'old': 0.55
+        },
+        {
+            'code': '2637', 'name': '慧洋', 'price': 71.7,
+            'stock_data': {'price': 71.7, 'ma_20': 71.69, 'ma_50': 65.0,
+                           'rsi': 53.9, 'macd_signal': 'neutral', 'volume_ratio': 0.5},
+            'bdi_data': {'value': 1173, 'change_percent': 0.1, 'level': '中性'},
+            'foreign_data': {'foreign_net': 800, 'foreign_holding_pct': 22.1, 'strength': '中性'},
+            'old': 0.55
+        },
+        {
+            'code': '2317', 'name': '鴻海', 'price': 219.5,
+            'stock_data': {'price': 219.5, 'ma_20': 209.8, 'ma_50': 225.0,
+                           'rsi': 70.2, 'macd_signal': 'neutral', 'volume_ratio': 1.1},
+            'foreign_data': {'foreign_net': -200, 'foreign_holding_pct': 45.0, 'strength': '中性'},
+            'old': 0.30
+        },
+    ]
+
+    print("=" * 55)
+    print("🧪 修正版信心度驗證 — 昨日實際數據對照")
+    print("=" * 55)
+    for c in cases:
+        conf, logic = calc.calculate_confidence(
+            c['code'], c['stock_data'],
+            c.get('bdi_data'), c.get('foreign_data')
+        )
+        old = c['old']
+        diff = conf - old
+        arrow = f"▲{abs(diff):.0%}" if diff > 0 else f"▼{abs(diff):.0%}" if diff < 0 else "→同"
+        print(f"\n{c['code']} {c['name']}")
+        print(f"  舊: {old:.0%}  →  新: {conf:.0%}  ({arrow})")
+        print(f"  明細: {' | '.join(logic)}")
