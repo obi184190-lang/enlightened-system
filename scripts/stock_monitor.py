@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 開明體系 - 股票監控系統
-Phase 5.2.3: 整合 BDI + 外資籌碼 + YAML 動態權重
+Phase 5.2.3: 整合 BDI + 外資 + YAML 動態權重
 """
 
 import os
@@ -54,11 +54,7 @@ def read_stock_list():
     try:
         with open('stocks.txt', 'r', encoding='utf-8') as f:
             lines = [line.strip() for line in f if line.strip() and not line.startswith('#')]
-            codes = []
-            for line in lines:
-                code = line.split(',')[0].strip()
-                if code:
-                    codes.append(code)
+            codes = [line.split(',')[0].strip() for line in lines if line]
             if codes:
                 return codes
     except FileNotFoundError:
@@ -89,12 +85,13 @@ def fetch_stock_data(stock_code: str) -> Optional[Dict]:
 
         latest = hist.iloc[-1]
         price = float(latest['Close'])
-
         ma20 = float(hist['Close'].rolling(20).mean().iloc[-1])
         ma50 = float(hist['Close'].rolling(50).mean().iloc[-1])
 
         delta = hist['Close'].diff()
-        rsi = float(100 - (100 / (1 + (delta.where(delta < 0, 0).rolling(14).mean() / delta.where(delta > 0, 0).rolling(14).mean()).iloc[-1])))
+        gain = delta.where(delta > 0, 0).rolling(14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+        rsi = float(100 - (100 / (1 + (gain / loss).iloc[-1])))
 
         volume_ratio = float(latest['Volume'] / hist['Volume'].rolling(20).mean().iloc[-1]) if hist['Volume'].rolling(20).mean().iloc[-1] > 0 else 1.0
 
@@ -103,19 +100,37 @@ def fetch_stock_data(stock_code: str) -> Optional[Dict]:
             'ma20': ma20,
             'ma50': ma50,
             'rsi': rsi,
-            'macd_hist': 1, # 簡化版，之後可再優化
+            'macd_hist': 1, # 簡化
             'volume_ratio': volume_ratio,
-            'sector': 'general' # 可後續依股票代碼判斷
+            'sector': 'general'
         }
     except Exception as e:
         print(f"{stock_code} 數據抓取失敗: {e}")
         return None
 
 
-def main():
-    """主程式"""
-    print("🚀 開明體系 - 股票監控系統 Phase 5.2.3 啟動")
+def send_telegram_notification(message: str) -> bool:
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        print("⚠️ Telegram 未設定，跳過")
+        return False
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {'chat_id': TELEGRAM_CHAT_ID, 'text': message, 'parse_mode': 'HTML'}
+        response = requests.post(url, json=payload, timeout=10)
+        if response.status_code == 200:
+            print("✅ Telegram 訊息已發送")
+            return True
+        else:
+            print(f"⚠️ Telegram 發送失敗: {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"❌ Telegram 錯誤: {e}")
+        return False
 
+
+def main():
+    print("🚀 開明體系 - 股票監控系統 Phase 5.2.3 啟動")
+    
     stock_codes = read_stock_list()
     results = []
 
@@ -126,7 +141,7 @@ def main():
         stock_data = fetch_stock_data(stock_code)
 
         if not stock_data:
-            print(f"❌ {stock_code} 數據不足，跳過")
+            print(f"❌ {stock_code} 跳過")
             continue
 
         price = stock_data['price']
@@ -142,8 +157,8 @@ def main():
                 "rsi": stock_data.get("rsi"),
                 "macd_hist": stock_data.get("macd_hist"),
                 "volume_ratio": stock_data.get("volume_ratio", 1.0),
-                "bdi_change_pct": 0, # 之後再串 BDI
-                "foreign_strength": 0.5 # 之後再串外資
+                "bdi_change_pct": 0,
+                "foreign_strength": 0.5
             }
             confidence, detail = calculator.calculate_confidence(calc_input)
         else:
@@ -169,6 +184,13 @@ def main():
             'confidence': confidence,
             'message': message
         })
+
+    # 發送 Telegram
+    if results:
+        telegram_summary = f"📊 股票監控摘要\n時間: {get_taiwan_time()}\n\n"
+        for r in results:
+            telegram_summary += r['message'] + "\n" + "-" * 30 + "\n"
+        send_telegram_notification(telegram_summary)
 
     print(f"\n✅ 完成 {len(results)} 支股票分析")
     return results
