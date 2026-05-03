@@ -421,7 +421,7 @@ else:
         price = stock_data['price']
         
         # 格式化 Telegram 訊息
-        if PHASE_5_2_3_ENABLED and calculator:
+        if PHASE_5_2_3_ENABLED and calculator and 'detail' in locals():
             message = calculator.format_telegram_message(
                 stock_code=stock_code,
                 stock_name=stock_name,
@@ -436,7 +436,15 @@ else:
             message = f"🟡 {stock_code} {stock_name} [建議買入]\n"
             message += f"信心度: {confidence}%\n"
 
-            message = calculator.format_telegram_message(
+        # 把 message 加入結果
+        results.append({
+            'stock_code': stock_code,
+            'stock_name': stock_name,
+            'price': price,
+            'confidence': confidence,
+            'message': message
+        })
+
                 stock_code,
                 stock_name,
                 price,
