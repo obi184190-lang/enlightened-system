@@ -13,16 +13,16 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
 import time
 
-# 導入新模組 ⭐ Phase 5.2.3 新增
+# === Phase 5.2.3 信心度計算器 ===
 try:
-    from market_data_fetcher import MarketDataIntegration
     from confidence_calculator_v2 import ConfidenceCalculatorV2
+    calculator = ConfidenceCalculatorV2()          # ← 建立實例
     PHASE_5_2_3_ENABLED = True
-except ImportError as e:
-    print(f"⚠️ Phase 5.2.3 模組未找到: {e}")
-    print("⚠️ 系統將以 Phase 4 模式運行")
+    print("✅ Phase 5.2.3 信心度計算器載入成功 (YAML 動態權重)")
+except Exception as e:
+    print(f"⚠️ Phase 5.2.3 載入失敗: {e}")
     PHASE_5_2_3_ENABLED = False
-
+    calculator = None
 # 環境變數
 SUPABASE_URL = os.getenv('SUPABASE_URL')
 SUPABASE_ANON_KEY = os.getenv('SUPABASE_ANON_KEY')
