@@ -332,77 +332,12 @@ def format_message_phase4(stock_code: str, stock_name: str, price: float,
 
 
 def main():
-    """主函數"""
-    global PHASE_5_2_3_ENABLED  # 修復：宣告為全局變數
-    # 格式化訊息
-if PHASE_5_2_3_ENABLED and calculator and 'detail' in locals():
-    message = calculator.format_telegram_message(
-        stock_code=stock_code,
-        stock_name=stock_name,
-        price=price,
-        confidence=confidence,
-        detail=detail,
-        target_price=stock_data.get('target_price'),
-        stop_loss=stock_data.get('stop_loss')
-    )
-else:
-    # 舊版格式化方式（備用）
-    message = f"🟡 {stock_code} {stock_name} [建議買入]\n"
-    message += f"信心度: {confidence}%\n"
-
-    print("=" * 60)
-    print("🚀 開明體系 - 股票監控系統")
-    if PHASE_5_2_3_ENABLED:
-        print("📊 Phase 5.2.3: BDI + 外資籌碼整合版")
-    else:
-        print("📊 Phase 4 模式")
-    print("=" * 60)
-    print(f"執行時間: {get_taiwan_time()} (台灣時間)")
-    print("=" * 60)
+    """主程式：股票監控與信心度計算"""
+    print("🚀 開明體系 - 股票監控系統 Phase 5.2.3 啟動")
     
-    # 讀取股票清單
-    stock_codes = read_stock_list()
-    print(f"\n監控股票: {', '.join(stock_codes)}")
-    print("=" * 60)
+    # 載入股票清單
+    stock_codes = load_stock_list()
     
-    # 初始化 Telegram 訊息（簡化格式，避免 HTML 錯誤）
-    telegram_message = "📊 股票監控摘要\n"
-    telegram_message += f"時間: {get_taiwan_time()} (台灣時間)\n"
-    
-    if PHASE_5_2_3_ENABLED:
-        telegram_message += "版本: Phase 5.2.3 🆕\n\n"
-    else:
-        telegram_message += "版本: Phase 4\n\n"
-    
-    # Phase 5.2.3: 獲取市場數據
-    market_data = None
-    bdi_data = None
-    foreign_data_all = {}
-    calculator = None
-    
-    if PHASE_5_2_3_ENABLED:
-        print("\n🌐 Phase 5.2.3: 獲取市場數據...")
-        try:
-            market_data = MarketDataIntegration()
-            all_market_data = market_data.fetch_all_data(stock_codes)
-            
-            bdi_data = all_market_data.get('bdi')
-            foreign_data_all = all_market_data.get('foreign', {})
-            
-            # 初始化升級版計算器
-            calculator = ConfidenceCalculatorV2()
-            
-            print("✅ Phase 5.2.3 市場數據獲取完成")
-        except Exception as e:
-            print(f"⚠️ Phase 5.2.3 數據獲取失敗: {e}")
-            print("⚠️ 降級為 Phase 4 模式")
-            PHASE_5_2_3_ENABLED = False
-    
-    print("\n" + "=" * 60)
-    print("📈 開始分析股票...")
-    print("=" * 60)
-    
-    # 處理每支股票
     results = []
     
     for stock_code in stock_codes:
@@ -413,15 +348,38 @@ else:
         
         # 獲取技術數據
         stock_data = fetch_stock_data(stock_code)
-        
         if not stock_data:
             print(f"❌ {stock_code} 跳過（數據不足）")
             continue
         
         price = stock_data['price']
         
+        # === Phase 5.2.3 信心度計算 ===
+        if PHASE_5_2_3_ENABLED and calculator:
+            calc_input = {
+                "code": stock_code,
+                "sector": stock_data.get("sector", "general"),
+                "price": price,
+                "ma20": stock_data.get("ma20"),
+                "ma50": stock_data.get("ma50"),
+                "rsi": stock_data.get("rsi"),
+                "macd_hist": stock_data.get("macd_hist"),
+                "volume_ratio": stock_data.get("volume_ratio", 1.0),
+                "bdi_change_pct": bdi_for_stock.get("change_pct", 0) if isinstance(bdi_for_stock, dict) else 0,
+                "foreign_strength": foreign_data.get("strength", 0.5) if isinstance(foreign_data, dict) else 0.5,
+            }
+
+            confidence, detail = calculator.calculate_confidence(calc_input)
+            logic_breakdown = detail.get('breakdown', {})
+            signal = detail.get('signal', '觀望')
+        else:
+            # Phase 4 備用
+            confidence = 55
+            logic_breakdown = {}
+            signal = "觀望"
+
         # 格式化 Telegram 訊息
-        if PHASE_5_2_3_ENABLED and calculator and 'detail' in locals():
+        if PHASE_5_2_3_ENABLED and calculator:
             message = calculator.format_telegram_message(
                 stock_code=stock_code,
                 stock_name=stock_name,
@@ -432,11 +390,10 @@ else:
                 stop_loss=stock_data.get('stop_loss')
             )
         else:
-            # 舊版備用訊息
             message = f"🟡 {stock_code} {stock_name} [建議買入]\n"
             message += f"信心度: {confidence}%\n"
 
-        # 把 message 加入結果
+        # 加入結果
         results.append({
             'stock_code': stock_code,
             'stock_name': stock_name,
@@ -445,83 +402,11 @@ else:
             'message': message
         })
 
-                stock_code,
-                stock_name,
-                price,
-                confidence,
-                logic_parts,
-                bdi_for_stock,
-                foreign_data
-            )
-            
-            # 獲取信號類型
-            signal_type, _, _ = calculator.get_signal_level(confidence)
-            
-        else:
-            # Phase 4: 使用備用計算
-            confidence, logic_parts = calculate_confidence_phase4(stock_data)
-            message = format_message_phase4(stock_code, stock_name, price, confidence, logic_parts)
-            
-            if confidence >= 0.50:
-                signal_type = 'BUY'
-            else:
-                signal_type = 'HOLD'
-        
-        # 加入 Telegram 訊息
-        telegram_message += message + "\n"
-        
-        # 儲存到 Supabase
-        db_data = {
-            'stock_code': stock_code,
-            'stock_name': stock_name,
-            'price': price,
-            'signal_type': signal_type,
-            'confidence': confidence,
-            'logic': ', '.join(logic_parts),
-            'timestamp': datetime.now(TW_TZ).isoformat()
-        }
-        
-        # Phase 5.2.3: 新增欄位
-        if PHASE_5_2_3_ENABLED:
-            bdi_for_stock = market_data.get_bdi_for_stock(stock_code) if market_data else None
-            foreign_data = foreign_data_all.get(stock_code)
-            
-            db_data['bdi_index'] = bdi_for_stock['value'] if bdi_for_stock else None
-            db_data['bdi_change_pct'] = bdi_for_stock['change_percent'] if bdi_for_stock else None
-            db_data['foreign_net_buy'] = foreign_data['foreign_net'] if foreign_data else None
-            db_data['foreign_holding_pct'] = foreign_data['foreign_holding_pct'] if foreign_data else None
-            db_data['chip_strength'] = foreign_data['strength'] if foreign_data else None
-        
-        save_to_supabase(db_data)
-        
-        results.append({
-            'code': stock_code,
-            'name': stock_name,
-            'signal': signal_type,
-            'confidence': confidence
-        })
-        
-        print(f"✅ {stock_code} {stock_name}: {signal_type} ({confidence:.1%})")
+    # TODO: 後續處理（發送 Telegram、存入 Supabase 等）
+    # send_telegram_summary(results)
+    # save_to_supabase(results)
     
-    # 發送 Telegram 通知
-    print("\n" + "=" * 60)
-    print("📱 發送 Telegram 通知...")
-    send_telegram_notification(telegram_message)
-    
-    # 摘要
-    print("\n" + "=" * 60)
-    print("📊 執行摘要")
-    print("=" * 60)
-    print(f"分析股票: {len(results)}/{len(stock_codes)}")
-    
-    buy_signals = [r for r in results if r['signal'] == 'BUY']
-    if buy_signals:
-        print(f"\n🟢 BUY 信號: {len(buy_signals)} 支")
-        for r in buy_signals:
-            print(f"  • {r['code']} {r['name']}: {r['confidence']:.1%}")
-    
-    print("\n✅ 執行完成")
-    print("=" * 60)
+    return results
 
 
 if __name__ == '__main__':
