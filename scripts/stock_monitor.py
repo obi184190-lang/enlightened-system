@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 開明體系 - 股票監控系統
-最強 Phase 5.2.3: BDI + 外資 + 美化訊息 + 風險控管
+最強 Phase 5.2.3: 真實 BDI + 外資 + 美化訊息
 """
 
 import os
@@ -12,6 +12,7 @@ import yfinance as yf
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
 import time
+from bs4 import BeautifulSoup
 
 # ====================== Phase 5.2.3 初始化 ======================
 PHASE_5_2_3_ENABLED = False
@@ -21,7 +22,7 @@ try:
     from confidence_calculator_v2 import ConfidenceCalculatorV2
     calculator = ConfidenceCalculatorV2()
     PHASE_5_2_3_ENABLED = True
-    print("✅ Phase 5.2.3 信心度計算器載入成功 (YAML 動態權重)")
+    print("✅ Phase 5.2.3 信心度計算器載入成功")
 except Exception as e:
     print(f"⚠️ Phase 5.2.3 載入失敗: {e}")
     PHASE_5_2_3_ENABLED = False
@@ -29,16 +30,12 @@ except Exception as e:
 # ============================================================
 
 # 環境變數
-SUPABASE_URL = os.getenv('SUPABASE_URL')
-SUPABASE_ANON_KEY = os.getenv('SUPABASE_ANON_KEY')
-SUPABASE_SERVICE_ROLE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 # 台灣時區
 TW_TZ = timezone(timedelta(hours=8))
 
-# 股票名稱快取
 STOCK_NAMES = {}
 
 
@@ -47,19 +44,14 @@ def get_taiwan_time():
 
 
 def read_stock_list():
-    stocks_override = os.getenv('STOCKS_OVERRIDE', '').strip()
-    if stocks_override:
-        return [s.strip() for s in stocks_override.split(',') if s.strip()]
-
     try:
         with open('stocks.txt', 'r', encoding='utf-8') as f:
             lines = [line.strip() for line in f if line.strip() and not line.startswith('#')]
             codes = [line.split(',')[0].strip() for line in lines if line]
             if codes:
                 return codes
-    except FileNotFoundError:
+    except:
         pass
-
     return ['2303', '2637', '4938', '2330', '2317', '2412']
 
 
@@ -74,6 +66,27 @@ def get_stock_name(stock_code: str) -> str:
         return name
     except:
         return stock_code
+
+
+def fetch_bdi_change():
+    """抓取 BDI 指數變化"""
+    try:
+        url = "https://www.investing.com/indices/baltic-dry"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        change = soup.find("span", {"data-test": "instrument-price-change"})
+        if change:
+            return float(change.text.strip().replace('%', ''))
+    except:
+        pass
+    return 0.0
+
+
+def fetch_foreign_strength(stock_code: str):
+    """簡化版外資力道（之後可接真實 API）"""
+    # 這裡可以接 twstock 或其他外資 API
+    return 0.65 # 暫時固定，之後替換成真實值
 
 
 def fetch_stock_data(stock_code: str) -> Optional[Dict]:
@@ -129,10 +142,11 @@ def send_telegram_notification(message: str) -> bool:
 
 
 def main():
-    print("🚀 開明體系 - 股票監控系統 Phase 5.2.3 最強版 啟動")
+    print("🚀 開明體系 - 股票監控系統 最強 Phase 5.2.3 啟動")
     
     stock_codes = read_stock_list()
     results = []
+    bdi_change = fetch_bdi_change()
 
     for stock_code in stock_codes:
         print(f"\n🔍 分析 {stock_code}...")
@@ -146,7 +160,7 @@ def main():
 
         price = stock_data['price']
 
-        # Phase 5.2.3 信心度計算
+        # Phase 5.2.3 最強計算
         if PHASE_5_2_3_ENABLED and calculator:
             calc_input = {
                 "code": stock_code,
@@ -157,8 +171,8 @@ def main():
                 "rsi": stock_data.get("rsi"),
                 "macd_hist": stock_data.get("macd_hist"),
                 "volume_ratio": stock_data.get("volume_ratio", 1.0),
-                "bdi_change_pct": 0.1, # 之後可接真實 BDI
-                "foreign_strength": 0.65 # 之後可接真實外資
+                "bdi_change_pct": bdi_change,
+                "foreign_strength": fetch_foreign_strength(stock_code)
             }
             confidence, detail = calculator.calculate_confidence(calc_input)
         else:
@@ -189,15 +203,14 @@ def main():
 
     # 發送 Telegram 摘要
     if results:
-        telegram_summary = f"📊 股票監控摘要\n時間: {get_taiwan_time()}\n版本: Phase 5.2.3 最強版 🆕\n\n"
+        telegram_summary = f"📊 股票監控摘要\n時間: {get_taiwan_time()}\n版本: 最強 Phase 5.2.3 🆕\nBDI 變化: {bdi_change:.1f}%\n\n"
         for r in results:
             telegram_summary += r['message'] + "\n" + "-" * 30 + "\n"
         
-        # 整體風險提示
         avg_conf = sum(r['confidence'] for r in results) / len(results)
         telegram_summary += f"\n📈 整體信心度: {avg_conf:.1f}%\n"
         if avg_conf > 70:
-            telegram_summary += "🔥 市場情緒偏強，適合積極操作"
+            telegram_summary += "🔥 市場情緒強烈，適合積極操作"
         elif avg_conf > 55:
             telegram_summary += "⚖️ 市場中性，謹慎操作"
         else:
