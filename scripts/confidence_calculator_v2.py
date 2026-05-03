@@ -177,3 +177,4 @@ class ConfidenceCalculatorV2:
             message += f"🛑 止損價: {stop_loss:.2f} ({downside:.1f}%)\n"
         
         return message
+
