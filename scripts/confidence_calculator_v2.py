@@ -145,3 +145,35 @@ class ConfidenceCalculatorV2:
         elif score >= thresholds.get('hold', 50):
             return self.signals.get('hold', '觀望')
         return self.signals.get('neutral', '暫不進場')
+
+     def format_telegram_message(self, stock_code: str, stock_name: str, 
+                              price: float, confidence: int, 
+                              detail: Dict, target_price: float = None, 
+                              stop_loss: float = None) -> str:
+        """格式化 Telegram 訊息"""
+        signal = detail.get('signal', '觀望')
+        breakdown = detail.get('breakdown', {})
+        
+        # 決定表情符號
+        if confidence >= 75:
+            emoji = "🔴"
+        elif confidence >= 65:
+            emoji = "🟡"
+        else:
+            emoji = "⚪"
+
+        message = f"{emoji} {stock_code} {stock_name} [{signal}]\n"
+        message += f"信號: BUY 價格: {price:.2f} 信心度: {confidence}%\n\n"
+        
+        message += "📊 技術面\n"
+        for factor, score in breakdown.items():
+            message += f" • {factor}: {score}%\n"
+        
+        if target_price:
+            upside = (target_price - price) / price * 100
+            message += f"\n🎯 目標價: {target_price:.2f} (+{upside:.1f}%)\n"
+        if stop_loss:
+            downside = (stop_loss - price) / price * 100
+            message += f"🛑 止損價: {stop_loss:.2f} ({downside:.1f}%)\n"
+        
+        return message
