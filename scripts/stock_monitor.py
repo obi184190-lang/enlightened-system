@@ -420,34 +420,21 @@ else:
         
         price = stock_data['price']
         
-        # Phase 5.2.3 使用升級版計算
-if PHASE_5_2_3_ENABLED and calculator:
-    # 準備計算器需要的輸入資料
-    calc_input = {
-        "code": stock_code,
-        "sector": stock_data.get("sector", "general"),
-        "price": stock_data.get("price"),
-        "ma20": stock_data.get("ma20"),
-        "ma50": stock_data.get("ma50"),
-        "rsi": stock_data.get("rsi"),
-        "macd_hist": stock_data.get("macd_hist"),
-        "volume_ratio": stock_data.get("volume_ratio", 1.0),
-        "bdi_change_pct": bdi_for_stock.get("change_pct", 0) if isinstance(bdi_for_stock, dict) else 0,
-        "foreign_strength": foreign_data.get("strength", 0.5) if isinstance(foreign_data, dict) else 0.5,
-    }
-
-    confidence, detail = calculator.calculate_confidence(calc_input)
-    
-    logic_breakdown = detail.get('breakdown', {})
-    signal = detail.get('signal', '觀望')
-    
-    print(f"✅ Phase 5.2.3 信心度計算完成 → {confidence}% ({signal})")
-else:
-    # 舊版備用（Phase 4）
-    confidence = 55
-    logic_breakdown = {}
-    signal = "觀望"
-    print("⚠️ 使用 Phase 4 備用信心度計算")
+        # 格式化 Telegram 訊息
+        if PHASE_5_2_3_ENABLED and calculator:
+            message = calculator.format_telegram_message(
+                stock_code=stock_code,
+                stock_name=stock_name,
+                price=price,
+                confidence=confidence,
+                detail=detail,
+                target_price=stock_data.get('target_price'),
+                stop_loss=stock_data.get('stop_loss')
+            )
+        else:
+            # 舊版備用訊息
+            message = f"🟡 {stock_code} {stock_name} [建議買入]\n"
+            message += f"信心度: {confidence}%\n"
 
             message = calculator.format_telegram_message(
                 stock_code,
