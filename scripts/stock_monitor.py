@@ -445,7 +445,6 @@ else:
             'message': message
         })
 
-
                 stock_code,
                 stock_name,
                 price,
