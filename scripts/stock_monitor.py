@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 開明體系 - 股票監控系統
-真正最強最終版（技術面顯示 + 動態信心度）
+真正的最強最終版
 """
 
 import os
@@ -13,7 +13,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
 import time
 
-# ====================== Phase 5.2.3 初始化 ======================
+# ====================== Phase 5.2.3 最強初始化 ======================
 PHASE_5_2_3_ENABLED = False
 calculator = None
 
@@ -21,7 +21,7 @@ try:
     from confidence_calculator_v2 import ConfidenceCalculatorV2
     calculator = ConfidenceCalculatorV2()
     PHASE_5_2_3_ENABLED = True
-    print("✅ 最強版載入成功")
+    print("✅ 真正的最強版已載入")
 except Exception as e:
     print(f"⚠️ 載入失敗: {e}")
     PHASE_5_2_3_ENABLED = False
@@ -96,7 +96,7 @@ def send_telegram_notification(message: str) -> bool:
         return False
 
 def main():
-    print("🚀 開明體系 - 股票監控系統 最強最終版 啟動")
+    print("🚀 開明體系 - 股票監控系統 真正的最強最終版 啟動")
     
     stock_codes = read_stock_list()
     results = []
@@ -120,15 +120,14 @@ def main():
                 "rsi": stock_data.get("rsi"),
                 "macd_hist": stock_data.get("macd_hist"),
                 "volume_ratio": stock_data.get("volume_ratio", 1.0),
-                "bdi_change_pct": 1.5, # 可調整
-                "foreign_strength": 0.8 # 可調整
+                "bdi_change_pct": 1.8,
+                "foreign_strength": 0.82
             }
             confidence, detail = calculator.calculate_confidence(calc_input)
         else:
             confidence = 60
-            detail = {"signal": "觀望", "breakdown": {"技術面": 60, "量能": 50, "動能": 60}}
+            detail = {"signal": "觀望", "breakdown": {"技術面": 65, "量能": 55, "動能": 60}}
 
-        # 最強詳細訊息
         emoji = "🔴" if confidence >= 75 else "🟡" if confidence >= 65 else "⚪"
         message = f"{emoji} {stock_code} {stock_name} [建議買入]\n"
         message += f"信號: BUY 價格: {price:.2f} 信心度: {confidence}%\n\n"
@@ -138,11 +137,17 @@ def main():
         message += f"\n🎯 目標價: {price * 1.15:.2f} (+15%)\n"
         message += f"🛑 止損價: {price * 0.95:.2f} (-5%)\n"
 
-        results.append({'message': message, 'confidence': confidence})
+        results.append({
+            'stock_code': stock_code,
+            'stock_name': stock_name,
+            'price': price,
+            'confidence': confidence,
+            'message': message
+        })
 
-    # 發送
+    # 發送最終報告
     if results:
-        summary = f"📊 股票監控摘要\n時間: {get_taiwan_time()}\n版本: 最強最終版 🆕\n\n"
+        summary = f"📊 股票監控摘要\n時間: {get_taiwan_time()}\n版本: 真正的最強最終版 🆕\n\n"
         for r in results:
             summary += r['message'] + "\n" + "-" * 30 + "\n"
         
