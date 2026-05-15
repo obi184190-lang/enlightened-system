@@ -480,10 +480,34 @@ def main():
     print("\n✅ 執行完成")
     print("=" * 60)
 
+import os, json
+from pathlib import Path
 
+FAIL_COUNT_FILE = "/tmp/enlightened_fail_count.json"   # resets each runner
+
+def check_consecutive_failures(had_data: bool):
+    """連續失敗 2 次以上 → 推送告警（補捉靜默錯誤）"""
+    state = {"count": 0}
+    if Path(FAIL_COUNT_FILE).exists():
+        state = json.loads(Path(FAIL_COUNT_FILE).read_text())
+
+    if not had_data:
+        state["count"] += 1
+    else:
+        state["count"] = 0   # 恢復正常，重置計數
+
+    Path(FAIL_COUNT_FILE).write_text(json.dumps(state))
+
+    if state["count"] >= 2:
+        msg = (f"⚠️ <b>開明體系 — 數據異常</b>\n\n"
+               f"連續 {state['count']} 次無法取得股價數據\n"
+               f"可能原因：休市 / yfinance 限流 / 代碼錯誤\n"
+               f"時間：{datetime.now(TW_TZ).strftime('%Y-%m-%d %H:%M')} (台灣時間)")
+        send_telegram_notification(msg)
 if __name__ == '__main__':
     try:
         main()
+    check_consecutive_failures(had_data=len(results) > 0)
     except KeyboardInterrupt:
         print("\n\n⚠️ 使用者中斷執行")
         sys.exit(0)
