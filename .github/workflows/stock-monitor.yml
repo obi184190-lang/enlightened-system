@@ -1,20 +1,17 @@
 name: Stock Monitor & Trading Bot
-
 on:
   schedule:
     - cron: '15 1 * * *'
-    - cron: '0 6 * * *' 
+    - cron: '0 6 * * *'
   workflow_dispatch:
     inputs:
       stocks_override:
         description: '臨時指定股票（逗號分隔，例如：2330,2454）留空則用stocks.txt'
         required: false
         default: ''
-
 jobs:
   stock-monitor:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -37,11 +34,11 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           STOCKS_OVERRIDE: ${{ github.event.inputs.stocks_override }}
-       
-        
-       python scripts/stock_monitor.py
-       
+        run: python scripts/stock_monitor.py
+
       - name: Log execution
+        run: echo "Stock monitoring completed at $(date)"
+
       - name: 失敗告警
         if: failure()
         env:
@@ -53,4 +50,3 @@ jobs:
           curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
             -d "chat_id=${CHAT_ID}" \
             -d "text=${MESSAGE}"
-        run: echo "Stock monitoring completed at $(date)"
