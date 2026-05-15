@@ -37,7 +37,13 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           STOCKS_OVERRIDE: ${{ github.event.inputs.stocks_override }}
+       - name: 失敗告警
+        if: failure()
         run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d parse_mode="HTML" \
+            -d text="🚨 <b>開明體系 — 系統異常</b>%0A%0A時間: $(TZ='Asia/Taipei' date '+%Y-%m-%d %H:%M') (台灣時間)%0ARun ID: ${{ github.run_id }}%0A%0A請至 GitHub Actions 查看詳情：%0Ahttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" run: |
           python scripts/stock_monitor.py
 
       - name: Log execution
