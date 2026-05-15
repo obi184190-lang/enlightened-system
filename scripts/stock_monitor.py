@@ -326,6 +326,7 @@ def main():
     print("=" * 60)
     print(f"執行時間: {get_taiwan_time()} (台灣時間)")
     print("=" * 60)
+    return results
     
     # 讀取股票清單
     stock_codes = read_stock_list()
@@ -505,9 +506,9 @@ def check_consecutive_failures(had_data: bool):
                f"時間：{datetime.now(TW_TZ).strftime('%Y-%m-%d %H:%M')} (台灣時間)")
         send_telegram_notification(msg)
 if __name__ == '__main__':
+    results = []
     try:
-        main()
-    check_consecutive_failures(had_data=len(results) > 0)
+        results = main()
     except KeyboardInterrupt:
         print("\n\n⚠️ 使用者中斷執行")
         sys.exit(0)
@@ -516,3 +517,6 @@ if __name__ == '__main__':
         import traceback
         traceback.print_exc()
         sys.exit(1)
+    finally:
+        check_consecutive_failures(had_data=len(results) > 0)
+        
