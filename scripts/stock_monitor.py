@@ -161,8 +161,8 @@ def save_to_supabase(data: Dict) -> bool:
     try:
         url = f'{SUPABASE_URL}/rest/v1/trade_logs'
         headers = {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': f'Bearer {SUPABASE_ANON_KEY}',
+            'apikey': SUPABASE_SERVICE_ROLE_KEY or SUPABASE_ANON_KEY,
+            'Authorization': f'Bearer {SUPABASE_SERVICE_ROLE_KEY or SUPABASE_ANON_KEY}',
             'Content-Type': 'application/json',
             'Prefer': 'return=minimal'
         }
@@ -189,7 +189,7 @@ def send_telegram_notification(message: str) -> bool:
         payload = {
             'chat_id': TELEGRAM_CHAT_ID,
             'text': message,
-            'parse_mode': 'HTML'
+            
         }
         response = requests.post(url, json=payload, timeout=10)
         if response.status_code == 200:
