@@ -45,7 +45,7 @@ class ConfidenceCalculatorV2:
                 'ma_20': float,
                 'ma_50': float,
                 'rsi': float,
-                'macd_signal': str,  # 'golden_cross' or 'dead_cross' or 'neutral'
+                'macd_signal': str,  # golden_cross / dead_cross / bullish / bearish
                 'volume_ratio': float  # 當日成交量 / 20日平均量
             }
             bdi_data: BDI 數據（可選）
@@ -57,13 +57,21 @@ class ConfidenceCalculatorV2:
             logic_parts: 決策邏輯說明列表
         """
         if self.is_shipping_stock(stock_code):
-            return self._calculate_shipping_confidence(
+            confidence, logic_parts = self._calculate_shipping_confidence(
                 stock_data, bdi_data, foreign_data
             )
         else:
-            return self._calculate_normal_confidence(
+            confidence, logic_parts = self._calculate_normal_confidence(
                 stock_data, foreign_data
             )
+
+        # 否決規則：RSI ≥ 80 極度超買，不發出 BUY（信心度上限壓在 BUY 門檻之下）
+        rsi = stock_data.get('rsi')
+        if rsi is not None and rsi >= 80 and confidence >= 0.50:
+            confidence = 0.49
+            logic_parts.append(f"⛔RSI={rsi:.1f}≥80 超買，否決BUY")
+
+        return confidence, logic_parts
     
     def _calculate_shipping_confidence(
         self,
@@ -128,9 +136,14 @@ class ConfidenceCalculatorV2:
         if macd_signal == 'golden_cross':
             score += 20
             logic_parts.append("MACD金叉✓")
+        elif macd_signal == 'bullish':
+            score += 12
+            logic_parts.append("MACD多方△")
         elif macd_signal == 'neutral':
             score += 5
             logic_parts.append("MACD中性△")
+        elif macd_signal == 'bearish':
+            logic_parts.append("MACD空方✗")
         else:
             logic_parts.append("MACD死叉✗")
         
@@ -250,9 +263,14 @@ class ConfidenceCalculatorV2:
         if macd_signal == 'golden_cross':
             score += 20
             logic_parts.append("MACD金叉✓")
+        elif macd_signal == 'bullish':
+            score += 12
+            logic_parts.append("MACD多方△")
         elif macd_signal == 'neutral':
             score += 5
             logic_parts.append("MACD中性△")
+        elif macd_signal == 'bearish':
+            logic_parts.append("MACD空方✗")
         else:
             logic_parts.append("MACD死叉✗")
         
@@ -366,7 +384,7 @@ class ConfidenceCalculatorV2:
             message += f"\n💰 籌碼面\n"
             
             foreign_net = foreign_data.get('foreign_net', 0)
-            holding_pct = foreign_data.get('foreign_holding_pct', 0)
+            holding_pct = foreign_data.get('foreign_holding_pct') or 0
             strength = foreign_data.get('strength', '未知')
             
             # 簡化格式
@@ -381,6 +399,9 @@ class ConfidenceCalculatorV2:
                 message += f" • 外資持股: {holding_pct:.1f}%\n"
             
             message += f" • 籌碼評級: {strength}\n"
+            if foreign_data.get('data_date'):
+                d = foreign_data['data_date']
+                message += f" • 資料日期: {d[4:6]}/{d[6:]}\n"
         
         # 止盈止損
         if signal_type == 'BUY':
