@@ -103,10 +103,11 @@ def fetch_stock_data(stock_code: str) -> Optional[Dict]:
     """獲取股票技術數據"""
     try:
         ticker = yf.Ticker(f"{stock_code}.TW")
-        hist = ticker.history(period="60d")
+        # 6 個月資料：確保 MA50、MACD、Wilder RSI 都有足夠暖機期
+        hist = ticker.history(period="6mo")
         hist = hist.dropna()
 
-        if hist.empty or len(hist) < 50:
+        if hist.empty or len(hist) < 60:
             print(f"⚠️ {stock_code}: 數據不足")
             return None
 
@@ -117,26 +118,43 @@ def fetch_stock_data(stock_code: str) -> Optional[Dict]:
         ma_20 = float(hist['Close'].rolling(window=20).mean().iloc[-1])
         ma_50 = float(hist['Close'].rolling(window=50).mean().iloc[-1])
 
+        # RSI(14)：Wilder 平滑（與看盤軟體一致）
         delta = hist['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss
-        rsi = float(100 - (100 / (1 + rs.iloc[-1])))
+        gain = delta.clip(lower=0).ewm(alpha=1/14, adjust=False, min_periods=14).mean()
+        loss = (-delta.clip(upper=0)).ewm(alpha=1/14, adjust=False, min_periods=14).mean()
+        last_loss = float(loss.iloc[-1])
+        if last_loss == 0:
+            rsi = 100.0
+        else:
+            rsi = float(100 - (100 / (1 + float(gain.iloc[-1]) / last_loss)))
 
         ema_12 = hist['Close'].ewm(span=12, adjust=False).mean()
         ema_26 = hist['Close'].ewm(span=26, adjust=False).mean()
         macd = ema_12 - ema_26
         signal = macd.ewm(span=9, adjust=False).mean()
+        diff = macd - signal
 
-        if macd.iloc[-1] > signal.iloc[-1] and macd.iloc[-2] <= signal.iloc[-2]:
-            macd_signal = 'golden_cross'
-        elif macd.iloc[-1] < signal.iloc[-1] and macd.iloc[-2] >= signal.iloc[-2]:
-            macd_signal = 'dead_cross'
-        else:
-            macd_signal = 'neutral'
+        # MACD 狀態：近 3 日內交叉算金叉/死叉，其餘依 DIF 與訊號線相對位置判斷多方/空方
+        macd_signal = 'bullish' if diff.iloc[-1] > 0 else 'bearish'
+        for i in range(1, 4):
+            if diff.iloc[-i] > 0 and diff.iloc[-i - 1] <= 0:
+                macd_signal = 'golden_cross'
+                break
+            if diff.iloc[-i] < 0 and diff.iloc[-i - 1] >= 0:
+                macd_signal = 'dead_cross'
+                break
 
-        avg_volume_20 = hist['Volume'].rolling(window=20).mean().iloc[-1]
-        volume_ratio = volume / avg_volume_20 if avg_volume_20 > 0 else 1.0
+        # 量比：與「前 20 日」均量比較；盤中依已交易時間比例換算，避免盤中量被低估
+        avg_volume_20 = float(hist['Volume'].iloc[-21:-1].mean())
+        now_tw = datetime.now(TW_TZ)
+        expected_fraction = 1.0
+        if hist.index[-1].date() == now_tw.date():
+            open_t = now_tw.replace(hour=9, minute=0, second=0, microsecond=0)
+            minutes = (now_tw - open_t).total_seconds() / 60
+            if 0 < minutes < 270:
+                expected_fraction = max(minutes / 270, 0.1)
+        expected_volume = avg_volume_20 * expected_fraction
+        volume_ratio = volume / expected_volume if expected_volume > 0 else 1.0
 
         return {
             'price': price,
@@ -413,30 +431,6 @@ def main():
     return results
 
 
-FAIL_COUNT_FILE = "/tmp/enlightened_fail_count.json"
-
-
-def check_consecutive_failures(had_data: bool):
-    """連續失敗 2 次以上 → 推送告警"""
-    state = {"count": 0}
-    if Path(FAIL_COUNT_FILE).exists():
-        state = json.loads(Path(FAIL_COUNT_FILE).read_text())
-
-    if not had_data:
-        state["count"] += 1
-    else:
-        state["count"] = 0
-
-    Path(FAIL_COUNT_FILE).write_text(json.dumps(state))
-
-    if state["count"] >= 2:
-        msg = (f"⚠️ <b>開明體系 — 數據異常</b>\n\n"
-               f"連續 {state['count']} 次無法取得股價數據\n"
-               f"可能原因：休市 / yfinance 限流 / 代碼錯誤\n"
-               f"時間：{datetime.now(TW_TZ).strftime('%Y-%m-%d %H:%M')} (台灣時間)")
-        send_telegram_notification(msg)
-
-
 if __name__ == '__main__':
     results = []
     try:
@@ -449,5 +443,9 @@ if __name__ == '__main__':
         import traceback
         traceback.print_exc()
         sys.exit(1)
-    finally:
-        check_consecutive_failures(had_data=bool(results))
+
+    # 完全沒有取得任何股價數據 → 讓 workflow 失敗，觸發 Telegram 失敗告警
+    # （舊版把計數存在 /tmp，每次 Actions 都是新機器，計數永遠歸零，告警不會觸發）
+    if not results:
+        print("❌ 本次沒有任何股票取得數據，標記為失敗")
+        sys.exit(1)
