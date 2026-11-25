@@ -154,63 +154,102 @@ class ForeignInvestmentFetcher:
                 'timestamp': str
             }
         """
-        # 先嘗試主要來源
-        try:
-            date_str = datetime.now().strftime('%Y%m%d')
-            
-            url = "https://www.twse.com.tw/rwd/zh/fund/T86"
-            params = {
-                'response': 'json',
-                'date': date_str,
-                'selectType': 'ALLBUT0999'
+        table = ForeignInvestmentFetcher._get_t86_table()
+        if table and stock_code in table:
+            row = table[stock_code]
+            foreign_net = row['net']
+            return {
+                'stock_code': stock_code,
+                'foreign_buy': row['buy'],
+                'foreign_sell': row['sell'],
+                'foreign_net': foreign_net,
+                'foreign_holding_pct': None,  # T86 不含持股比例
+                'strength': ForeignInvestmentFetcher._get_chip_strength(foreign_net),
+                'data_date': ForeignInvestmentFetcher._t86_date,
+                'timestamp': datetime.now().isoformat()
             }
-            
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-            
-            response = requests.get(url, params=params, headers=headers, timeout=10)
-            
-            if response.status_code == 200:
-                data = response.json()
-                
-                if 'data' in data and data['data']:
-                    for item in data['data']:
-                        if item[0] == stock_code:
-                            foreign_net = int(item[3].replace(',', ''))
-                            strength = ForeignInvestmentFetcher._get_chip_strength(foreign_net)
-                            
-                            return {
-                                'stock_code': stock_code,
-                                'foreign_buy': int(item[1].replace(',', '')) if len(item) > 1 else 0,
-                                'foreign_sell': int(item[2].replace(',', '')) if len(item) > 2 else 0,
-                                'foreign_net': foreign_net,
-                                'foreign_holding_pct': float(item[4]) if len(item) > 4 else 0.0,
-                                'strength': strength,
-                                'timestamp': datetime.now().isoformat()
-                            }
-        
-        except Exception as e:
-            print(f"⚠️ {stock_code} 主要來源失敗: {e}")
-        
-        # 嘗試備用方法
-        try:
-            return ForeignInvestmentFetcher._get_foreign_via_twstock(stock_code)
-        except Exception as e:
-            print(f"⚠️ {stock_code} 備用來源失敗: {e}")
-        
-        # 如果都失敗，返回預設值而非 None
-        print(f"ℹ️ {stock_code} 外資數據暫時無法獲取，使用預設值")
-        return {
-            'stock_code': stock_code,
-            'foreign_buy': 0,
-            'foreign_sell': 0,
-            'foreign_net': 0,
-            'foreign_holding_pct': 0.0,
-            'strength': '數據缺失',
-            'timestamp': datetime.now().isoformat()
-        }
-    
+
+        # 取不到就回傳 None，訊息會顯示「外資無數據」，不再用 0 假裝有資料
+        print(f"ℹ️ {stock_code} 外資數據暫時無法獲取")
+        return None
+
+    _t86_cache = None
+    _t86_date = None
+
+    @staticmethod
+    def _get_t86_table() -> Optional[Dict[str, Dict]]:
+        """
+        抓 TWSE T86（三大法人買賣超日報），整張表快取一次。
+        T86 約 16:00 後才公布，盤中執行時抓不到當天，因此往前找最近 7 天內有資料的交易日。
+        欄位依 fields 名稱定位，不寫死索引；單位由「股」換算成「張」。
+        """
+        if ForeignInvestmentFetcher._t86_cache is not None:
+            return ForeignInvestmentFetcher._t86_cache or None
+
+        from datetime import timedelta, timezone
+        tw_now = datetime.now(timezone(timedelta(hours=8)))
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+
+        def find_idx(fields, prefix):
+            # 以欄位名稱開頭比對（「外資自營商…」開頭的欄位不會誤中「外陸資…」）
+            for i, f in enumerate(fields):
+                if f.strip().startswith(prefix):
+                    return i
+            return None
+
+        def to_int(v):
+            try:
+                return int(str(v).replace(',', '').strip())
+            except ValueError:
+                return 0
+
+        for back in range(0, 8):
+            d = tw_now - timedelta(days=back)
+            if d.weekday() >= 5:
+                continue
+            date_str = d.strftime('%Y%m%d')
+            try:
+                resp = requests.get(
+                    "https://www.twse.com.tw/rwd/zh/fund/T86",
+                    params={'response': 'json', 'date': date_str, 'selectType': 'ALLBUT0999'},
+                    headers=headers, timeout=15
+                )
+                data = resp.json() if resp.status_code == 200 else {}
+            except Exception as e:
+                print(f"⚠️ T86 {date_str} 抓取失敗: {e}")
+                time.sleep(1)
+                continue
+
+            rows, fields = data.get('data'), data.get('fields')
+            if not rows or not fields:
+                time.sleep(1)
+                continue
+
+            i_buy = find_idx(fields, '外陸資買進股數')
+            i_sell = find_idx(fields, '外陸資賣出股數')
+            i_net = find_idx(fields, '外陸資買賣超股數')
+            if i_net is None:
+                i_net = find_idx(fields, '外資買賣超')
+            if i_net is None:
+                print(f"⚠️ T86 欄位格式改變，找不到外資買賣超欄位: {fields}")
+                break
+
+            table = {}
+            for r in rows:
+                code = str(r[0]).strip()
+                table[code] = {
+                    'buy': to_int(r[i_buy]) // 1000 if i_buy is not None else 0,
+                    'sell': to_int(r[i_sell]) // 1000 if i_sell is not None else 0,
+                    'net': to_int(r[i_net]) // 1000,
+                }
+            ForeignInvestmentFetcher._t86_cache = table
+            ForeignInvestmentFetcher._t86_date = date_str
+            print(f"✅ T86 外資資料日期: {date_str}（{len(table)} 檔）")
+            return table
+
+        ForeignInvestmentFetcher._t86_cache = {}
+        return None
+
     @staticmethod
     def _get_foreign_via_twstock(stock_code: str) -> Optional[Dict]:
         """
